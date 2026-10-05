@@ -1,0 +1,972 @@
+<script>
+(function () {
+'use strict';
+
+// ------------------------------------------------------------ constants & helpers
+const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+const FD = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const FMN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const MEALS = [['l', 'Siang', 'lunch'], ['d', 'Malam', 'dinner']];
+const RATES = [['enak', 'Enak', '#3B6D45'], ['biasa', 'Biasa', '#3F4A43'], ['kurang', 'Kurang', '#9A5A0C']];
+const RATE_LABEL = { enak: 'Enak', biasa: 'Biasa', kurang: 'Kurang' };
+const MEAL_NAME = { both: 'Siang & malam', lunch: 'Makan siang', dinner: 'Makan malam' };
+const REASONS = ['Libur nasional', 'Cuti bersama', 'Perawatan dapur', 'Acara kantor'];
+const LUNCH_FB_FROM = 12 * 60, DINNER_FB_FROM = 18 * 60 + 30;
+const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
+const DETAIL_COLS = '96px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
+const MONTH_COLS = '110px minmax(0,1fr) 80px 80px minmax(170px,1.3fr)';
+const FB_COLS = '110px 70px 80px minmax(0,1.2fr) minmax(0,1fr)';
+
+const k2t = k => { const p = k.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]); };
+const t2k = t => new Date(t).toISOString().slice(0, 10);
+const addDays = (k, n) => t2k(k2t(k) + n * 864e5);
+const dow = k => (new Date(k2t(k)).getUTCDay() + 6) % 7;
+const dnum = k => Number(k.slice(8, 10));
+const mnum = k => Number(k.slice(5, 7)) - 1;
+const hm = s => { const p = String(s).split(':').map(Number); return (p[0] || 0) * 60 + (p[1] || 0); };
+const monthEnd = ym => { const p = ym.split('-').map(Number); return t2k(Date.UTC(p[0], p[1], 0)); };
+const addMonths = (ym, n) => { const p = ym.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1 + n, 1)).toISOString().slice(0, 7); };
+const monthName = ym => FMN[Number(ym.slice(5, 7)) - 1];
+const daysOf = (from, to) => { const out = []; for (let k = from; k <= to; k = addDays(k, 1)) out.push(k); return out; };
+const fmt = k => DAYS[dow(k)] + ' ' + dnum(k) + ' ' + MON[mnum(k)];
+const fmtLong = k => FD[dow(k)] + ', ' + dnum(k) + ' ' + FMN[mnum(k)] + ' ' + k.slice(0, 4);
+const fmtRange = ks => !ks.length ? '—' : ks.length === 1 ? fmt(ks[0]) : fmt(ks[0]) + ' – ' + fmt(ks[ks.length - 1]);
+const weekRange = ws => { const we = addDays(ws, 6); return mnum(ws) === mnum(we) ? dnum(ws) + ' – ' + dnum(we) + ' ' + MON[mnum(we)] : dnum(ws) + ' ' + MON[mnum(ws)] + ' – ' + dnum(we) + ' ' + MON[mnum(we)]; };
+const nf = n => Number(n).toLocaleString('id-ID');
+const rp = n => (n < 0 ? '−' : '') + 'Rp ' + nf(Math.abs(n));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const initials = n => String(n).trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+const clone = o => JSON.parse(JSON.stringify(o));
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+
+const ls = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } }
+};
+
+const svg = (size, d, sw) => '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" style="flex:none">' + d + '</svg>';
+const ICON = {
+  cal: s => svg(s, '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path>'),
+  chart: s => svg(s, '<path d="M5 20V11M12 20V5M19 20v-6"></path>'),
+  calx: s => svg(s, '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4M10 13.5l4 4M14 13.5l-4 4"></path>'),
+  out: s => svg(s, '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 8l-4 4 4 4M6 12h10"></path>'),
+  left: s => svg(s, '<path d="M15 6l-6 6 6 6"></path>', 2),
+  right: s => svg(s, '<path d="M9 6l6 6-6 6"></path>', 2),
+  clock: s => svg(s, '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>')
+};
+
+// ------------------------------------------------------------ state
+const S = {
+  booting: true, busy: false, token: ls.get('pm-token'), user: null, settings: { cutDays: 3, cutTime: '23:59', maxPortions: 3 },
+  price: 5000, skew: 0, months: [], fbTags: [], fbEditDays: 3,
+  view: 'meal', navClosed: ls.get('pm-navClosed') === '1',
+  nik: '', nm: '', loginErr: '',
+  saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
+  pop: null, fbDraft: null, submitting: false, drag: null, suppress: false,
+  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', day: null, ym: '', month: null,
+    fb: null, fbMeal: 'all', fbRate: 'all', fbTag: 'all', fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
+  cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
+  loading: {}, toast: null
+};
+
+// ------------------------------------------------------------ server
+function call(action, payload) {
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).api(action, S.token, payload || null);
+  });
+}
+function fail(e) {
+  const m = (e && e.message) || String(e);
+  if (m.indexOf('SESI_HABIS') >= 0) return signOut('Sesi berakhir. Silakan masuk lagi.');
+  flash(m.replace(/^Error:\s*/, ''));
+}
+
+// ------------------------------------------------------------ clock & rules
+function nowJ() {
+  const d = new Date(Date.now() + S.skew + 7 * 3600e3);
+  return { key: d.toISOString().slice(0, 10), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
+}
+function cutoffOf(k) {
+  const ws = addDays(k, -dow(k));
+  return { key: addDays(ws, -S.settings.cutDays), min: hm(S.settings.cutTime) };
+}
+function isLocked(k, now) {
+  const c = cutoffOf(k);
+  return now.key > c.key || (now.key === c.key && now.min >= c.min);
+}
+const minsUntil = (c, now) => (k2t(c.key) - k2t(now.key)) / 6e4 + c.min - now.min;
+const cutLabel = c => DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)] + ', ' + S.settings.cutTime;
+function leftTxt(m) {
+  m = Math.max(1, Math.round(m));
+  const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mm = m % 60;
+  return d ? d + ' hari ' + h + ' jam' : h ? h + ' jam ' + mm + ' menit' : mm + ' menit';
+}
+const blockOf = (list, k, meal) => list.find(c => c.date === k && (c.meal === 'both' || c.meal === meal)) || null;
+const savedQ = (k, mk) => (S.saved[k] || {})[mk] || 0;
+const selQ = (k, mk) => (S.sel[k] || {})[mk] || 0;
+const mealStarted = (k, meal, now) => k < now.key || (k === now.key && now.min >= (meal === 'lunch' ? LUNCH_FB_FROM : DINNER_FB_FROM));
+const fbOpen = (k, now) => now.key <= addDays(k, S.fbEditDays);
+
+function pendingChanges(now) {
+  const keys = {};
+  Object.keys(S.sel).concat(Object.keys(S.saved)).forEach(k => { keys[k] = true; });
+  const out = [];
+  Object.keys(keys).sort().forEach(k => {
+    if (isLocked(k, now)) return;
+    const al = selQ(k, 'l'), ad = selQ(k, 'd'), bl = savedQ(k, 'l'), bd = savedQ(k, 'd');
+    if (al !== bl || ad !== bd) out.push({ date: k, l: al, d: ad, n: (al !== bl) + (ad !== bd), delta: al - bl + ad - bd, add: (al >= bl && ad >= bd) });
+  });
+  return out;
+}
+
+// ------------------------------------------------------------ rendering
+let root;
+function render() {
+  const a = document.activeElement, f = a && a.dataset ? a.dataset.f : null;
+  let s0 = null, s1 = null;
+  try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) { /* not a text input */ }
+  const keep = {};
+  root.querySelectorAll('[data-keep]').forEach(el => { keep[el.dataset.keep] = [el.scrollTop, el.scrollLeft]; });
+  root.innerHTML = view();
+  root.querySelectorAll('[data-keep]').forEach(el => { const v = keep[el.dataset.keep]; if (v) { el.scrollTop = v[0]; el.scrollLeft = v[1]; } });
+  if (f) {
+    const el = root.querySelector('[data-f="' + f + '"]');
+    if (el) { el.focus(); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch (e) { /* no selection API */ } }
+  }
+  ensureData();
+}
+
+function view() {
+  if (S.booting) return '<div class="boot">Memuat…</div>';
+  if (!S.user) return loginView() + toastView();
+  const main = S.view === 'recap' && S.user.admin ? recapView() : S.view === 'closure' && S.user.admin ? closureView() : empView();
+  return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + fbModalView() + printView() + toastView();
+}
+
+function flash(msg, undo) {
+  S.toast = { msg, undo: undo || null };
+  clearTimeout(flash.t);
+  flash.t = setTimeout(() => { S.toast = null; render(); }, undo ? 6000 : 3000);
+  render();
+}
+function toastView() {
+  if (!S.toast) return '';
+  return '<div class="toast" role="status"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.undo ? '<button data-a="undo">Urungkan</button>' : '') + '</div>';
+}
+
+// ------------------------------------------------------------ login
+function loginView() {
+  const e = S.loginErr, nikErr = /^NIK/.test(e), nmErr = /^Nama/.test(e);
+  return '<div class="login"><div class="login-l"><span class="login-brand"><b>S</b>egari</span>' +
+    '<div class="login-mid"><h1>Program Makan</h1><p>Daftar makan siang dan makan malam setiap bulan. Pilih hari, tentukan jumlah porsi, dan pantau makananmu. Setiap porsi Rp 5.000 dan dipotong dari gaji.</p></div>' +
+    '<span class="login-foot">Butuh bantuan? Hubungi admin program makan.</span></div>' +
+    '<div class="login-r"><form data-submit="login" novalidate>' +
+    '<div class="field"><h2>Masuk</h2><span class="muted">Masukkan NIK dan nama lengkap sesuai data HR.</span></div>' +
+    '<label class="field"><span class="lbl">NIK (Nomor Induk Karyawan)</span><input class="linput nik' + (nikErr ? ' err' : '') + '" data-f="nik" data-in="nik" value="' + esc(S.nik) + '" inputmode="numeric" maxlength="16" placeholder="cth. 20210001" autocomplete="username"></label>' +
+    '<label class="field"><span class="lbl">Nama lengkap</span><input class="linput' + (nmErr ? ' err' : '') + '" data-f="nm" data-in="nm" value="' + esc(S.nm) + '" placeholder="cth. Rina Wulandari" autocomplete="name"></label>' +
+    (e ? '<div class="login-err">' + esc(e) + '</div>' : '') +
+    '<button type="submit" class="login-submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? 'Memeriksa…' : 'Masuk') + '</button>' +
+    '</form></div></div>';
+}
+
+async function doLogin() {
+  const nik = S.nik.replace(/\s/g, ''), nm = S.nm.trim();
+  if (!nik) { S.loginErr = 'NIK wajib diisi.'; return render(); }
+  if (!nm) { S.loginErr = 'Nama wajib diisi.'; return render(); }
+  S.busy = true; S.loginErr = ''; render();
+  try {
+    const r = await call('login', { nik, name: nm });
+    S.token = r.token; ls.set('pm-token', r.token);
+    await boot();
+    S.busy = false;
+    flash('Selamat datang, ' + S.user.name.split(' ')[0]);
+  } catch (e) {
+    S.busy = false;
+    S.loginErr = ((e && e.message) || String(e)).replace(/^Error:\s*/, '');
+    render();
+  }
+}
+
+function signOut(msg) {
+  S.token = null; ls.set('pm-token', null);
+  S.user = null; S.saved = {}; S.sel = {}; S.view = 'meal'; S.pop = null; S.fbDraft = null;
+  S.hr.day = S.hr.month = S.hr.fb = null; S.cl.data = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
+  render();
+}
+
+async function boot() {
+  const d = await call('bootstrap');
+  S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
+  S.skew = d.now.ms - Date.now();
+  S.view = d.user.admin && ['recap', 'closure'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
+  S.saved = d.reg; S.sel = clone(d.reg); S.closures = d.closures; S.menus = d.menus; S.fb = d.fb; S.mi = 0;
+  const now = nowJ();
+  S.hr.date = now.key; S.hr.ym = now.key.slice(0, 7);
+  S.cl.from = S.cl.to = now.key;
+  S.booting = false;
+  render();
+}
+
+// ------------------------------------------------------------ sidebar
+function sideView() {
+  const u = S.user, ini = esc(initials(u.name)), mini = S.navClosed || window.innerWidth < 760;
+  const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx]] : []);
+  const role = (u.admin ? 'Admin' : (u.dept || 'Karyawan')) + ' · NIK ' + u.nik;
+  if (mini) {
+    return '<aside class="side mini"><div class="logo">S</div><nav class="nav">' +
+      items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '" title="' + i[1] + '" aria-label="' + i[1] + '">' + i[2](22) + '</button>').join('') +
+      '</nav><div class="side-foot"><div class="avatar" title="' + esc(u.name) + '">' + ini + '</div>' +
+      '<button class="logout" data-a="logout" title="Keluar" aria-label="Keluar" style="padding:0;width:44px;justify-content:center">' + ICON.out(18) + '</button>' +
+      (window.innerWidth < 760 ? '' : '<button class="collapse" data-a="toggleNav" title="Tampilkan menu samping">' + ICON.right(18) + '</button>') + '</div></aside>';
+  }
+  return '<aside class="side"><div class="brand"><div class="logo">S</div><div class="brand-t"><b>Segari</b><span>Program Makan</span></div></div>' +
+    '<nav class="nav">' + items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '">' + i[2](20) + i[1] + '</button>').join('') + '</nav>' +
+    '<div class="side-foot"><div class="user"><div class="avatar">' + ini + '</div><div class="user-t"><b class="ell">' + esc(u.name) + '</b><span class="ell">' + esc(role) + '</span></div></div>' +
+    '<div class="foot-row"><button class="logout" data-a="logout">' + ICON.out(18) + 'Keluar</button>' +
+    '<button class="collapse" data-a="toggleNav" title="Sembunyikan menu samping">' + ICON.left(18) + '</button></div></div></aside>';
+}
+
+// ------------------------------------------------------------ employee
+function greeting(min) { return min < 660 ? 'Selamat pagi' : min < 900 ? 'Selamat siang' : min < 1110 ? 'Selamat sore' : 'Selamat malam'; }
+
+function empView() {
+  const now = nowJ(), today = now.key, ym = S.months[S.mi];
+  const pend = pendingChanges(now);
+  let h = '<main class="emp">';
+
+  // announcements: closures in the next 9 days
+  const end = addDays(today, 9), groups = {};
+  S.closures.filter(c => c.date >= today && c.date <= end).forEach(c => { (groups[c.g] = groups[c.g] || []).push(c); });
+  const notes = Object.keys(groups).map(g => groups[g].sort((a, b) => a.date.localeCompare(b.date)))
+    .sort((a, b) => a[0].date.localeCompare(b[0].date));
+  if (notes.length) {
+    h += '<div class="notice"><b>Pengumuman minggu ini</b>' + notes.map(cs => '<div class="notice-r"><span>' + esc(cs.length > 1 ? fmt(cs[0].date) + ' – ' + dnum(cs[cs.length - 1].date) : fmt(cs[0].date)) + '</span><span>Kantin tutup (' + MEAL_NAME[cs[0].meal].toLowerCase() + ') · ' + esc(cs[0].reason) + '. Tidak ada biaya.</span></div>').join('') + '</div>';
+  }
+
+  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span></div>';
+
+  // feedback banner for today's lunch
+  const bannerOn = savedQ(today, 'l') && !blockOf(S.closures, today, 'lunch') && mealStarted(today, 'lunch', now) && !S.fb[today + '-lunch'] && ls.get('pm-fbDismiss') !== today;
+  if (bannerOn) {
+    const menu = (S.menus[today] || {}).lunch;
+    h += '<div class="banner"><div class="t"><b>Bagaimana makan siang hari ini?</b><span>' + esc(menu || 'Makan siang hari ini') + ' · masukanmu dikirim tanpa nama ke tim dapur</span></div>' +
+      '<div class="chips">' + RATES.map(r => '<button class="rate-btn" style="color:' + r[2] + '" data-a="bannerRate" data-r="' + r[0] + '">' + r[1] + '</button>').join('') + '</div>' +
+      '<button class="link muted" data-a="dismissBanner">Nanti saja</button></div>';
+  }
+
+  h += thisWeekView(now);
+
+  // month tabs
+  h += '<nav class="tabs">' + S.months.map((m, i) => {
+    const st = monthStatus(m, now, pend);
+    return '<button class="tab mo' + (i === S.mi ? ' on' : '') + '" data-a="month" data-i="' + i + '"><span>' + monthName(m) + '</span><span class="sub">' + esc(st.sub) + '</span></button>';
+  }).join('') + '</nav>';
+
+  h += '<div class="cal-area"><div class="cal-col">' + lockBarView(now) + calToolbar() + calendarView(ym, now) +
+    '<span class="help">Ketuk untuk memilih, atau tahan dan geser untuk memilih beberapa hari sekaligus. Ketuk lagi untuk atur porsi atau hapus. Pilihan baru tercatat setelah kamu tekan Kirim pendaftaran.</span>' +
+    pendingBarView(pend, now) + '</div>' + summaryView(ym, now, pend) + '</div>';
+  return h + '</main>';
+}
+
+function thisWeekView(now) {
+  const today = now.key, ws = addDays(today, -dow(today));
+  let n = 0;
+  const cards = daysOf(ws, addDays(ws, 6)).map(k => {
+    const isT = k === today, past = k < today, full = blockOf(S.closures, k, 'lunch') && blockOf(S.closures, k, 'dinner');
+    const cls = isT ? ' today' : past ? ' past' : (dow(k) >= 5 || full) ? ' off' : '';
+    const rows = MEALS.map(([mk, name, meal]) => {
+      const blk = blockOf(S.closures, k, meal), q = savedQ(k, mk);
+      if (blk) return '<div class="twm"><div class="twm-r"><span class="sq off">–</span><span class="n off ell">' + name + '</span></div></div>';
+      if (!q) return '<div class="twm"><div class="twm-r"><span class="sq"></span><span class="n ell">' + name + '</span></div></div>';
+      n += q;
+      let fb = '';
+      if (mealStarted(k, meal, now)) {
+        const ex = S.fb[k + '-' + meal], open = fbOpen(k, now);
+        if (ex) fb = '<button class="fb-btn done" data-a="openFb" data-k="' + k + '" data-m="' + meal + '"' + (open ? ' title="Ubah penilaian"' : ' disabled') + '>Sudah dinilai · ' + RATE_LABEL[ex.r] + '</button>';
+        else if (open) fb = '<button class="fb-btn" data-a="openFb" data-k="' + k + '" data-m="' + meal + '">Beri nilai</button>';
+      }
+      return '<div class="twm"><div class="twm-r"><span class="sq on">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + fb + '</div>';
+    }).join('');
+    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows + '</div>';
+  }).join('');
+  return '<div style="display:flex;flex-direction:column;gap:12px"><div class="tw-h"><b>Jadwal makanmu minggu ini</b><span>' + weekRange(ws) + ' · ' + n + ' porsi · ' + rp(n * S.price) + '</span></div>' +
+    '<div style="overflow-x:auto" data-keep="tw"><div class="tw">' + cards + '</div></div></div>';
+}
+
+function monthTotals(ym, now) {
+  let l = 0, d = 0, closed = 0, editable = 0;
+  daysOf(ym + '-01', monthEnd(ym)).forEach(k => {
+    const lb = blockOf(S.closures, k, 'lunch'), db = blockOf(S.closures, k, 'dinner');
+    if (lb && db) { closed++; return; }
+    const lk = isLocked(k, now);
+    if (!lk) editable++;
+    const src = lk ? S.saved : S.sel, v = src[k] || {};
+    if (!lb) l += v.l || 0;
+    if (!db) d += v.d || 0;
+  });
+  return { l, d, closed, editable };
+}
+
+function monthStatus(ym, now, pend) {
+  const t = monthTotals(ym, now), n = t.l + t.d, draft = pend.some(c => c.date.slice(0, 7) === ym);
+  if (draft) return { sub: (n ? n + ' porsi · ' : '') + 'Draf', pill: 'Draf', cls: 'st-draft', t };
+  if (!t.editable) return { sub: (n ? n + ' porsi · ' : '') + 'Terkunci', pill: 'Terkunci', cls: 'st-lock', t };
+  if (n) return { sub: n + ' porsi · Terkirim', pill: 'Terkirim', cls: 'st-sent', t };
+  return { sub: 'Belum dipilih', pill: 'Belum dipilih', cls: 'st-lock', t };
+}
+
+function nextOpenWeek(now) {
+  let ws = addDays(now.key, -dow(now.key));
+  for (let i = 0; i < 6 && isLocked(ws, now); i++) ws = addDays(ws, 7);
+  return ws;
+}
+
+function lockBarView(now) {
+  const ws = nextOpenWeek(now), c = cutoffOf(ws), m = minsUntil(c, now), soon = m <= 24 * 60;
+  const head = soon ? 'Minggu ' + weekRange(ws) + ' terkunci dalam ' + leftTxt(m) + '.' : 'Minggu ' + weekRange(ws) + ' masih bisa diubah sampai ' + cutLabel(c) + '.';
+  const text = soon ? 'Setelah itu pilihan minggu tersebut tidak bisa diubah, dan pilihan yang belum dikirim tidak tercatat.' : 'Minggu yang sudah lewat batas tidak bisa diubah lagi.';
+  return '<div class="lockbar' + (soon ? ' lk' : '') + '">' + ICON.clock(18) + '<span><strong>' + head + '</strong> ' + text + '</span></div>';
+}
+
+function calToolbar() {
+  const opts = [['wk-lunch', 'Hari kerja · Makan siang'], ['wk-both', 'Hari kerja · Siang + malam'], ['wk-dinner', 'Hari kerja · Makan malam'], ['all-lunch', 'Setiap hari · Makan siang'], ['all-both', 'Setiap hari · Siang + malam'], ['clear', 'Kosongkan bulan ini']];
+  return '<div class="toolbar"><select class="input" style="min-width:240px" data-ch="quick"><option value="">Isi cepat…</option>' +
+    opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select><div class="spacer"></div>' +
+    '<div class="legend"><span><i class="sw" style="background:#3B6D45"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #3B6D45;background:#EEF6EF"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #DADDD8;background:#F7F8F6"></i>Belum dipilih</span></div>' +
+    '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button></div>';
+}
+
+function calendarView(ym, now) {
+  const today = now.key, first = ym + '-01', last = monthEnd(ym), nd = S.hideWknd ? 5 : 7;
+  const cols = S.hideWknd ? '130px repeat(5,minmax(110px,1fr))' : '130px repeat(7,minmax(96px,1fr))';
+  let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 700 : 860) + 'px"><span style="border-bottom:1px solid #E4E6E2"></span>';
+  h += DAYS.slice(0, nd).map((d, i) => '<span class="cal-dh" style="color:' + (i >= 5 ? '#5F6B63' : '#1E2A21') + '">' + d + '</span>').join('');
+  for (let ws = addDays(first, -dow(first)); ws <= last; ws = addDays(ws, 7)) {
+    const we = addDays(ws, 6), days = daysOf(ws, we), lk = isLocked(ws, now), c = cutoffOf(ws);
+    const label = ws <= today && today <= we ? 'Minggu ini · terkunci' : we < today ? 'Lewat' : lk ? 'Terkunci' : c.key === today ? 'Batas hari ini ' + S.settings.cutTime : 'Sampai ' + DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)];
+    let n = 0;
+    days.forEach(k => {
+      if (k.slice(0, 7) !== ym || k < today) return;
+      const src = isLocked(k, now) ? S.saved : S.sel, v = src[k] || {};
+      if (!blockOf(S.closures, k, 'lunch')) n += v.l || 0;
+      if (!blockOf(S.closures, k, 'dinner')) n += v.d || 0;
+    });
+    const editable = !lk && days.some(k => k.slice(0, 7) === ym);
+    h += '<div class="cal-wk"><span class="lb" style="color:' + (we < today ? '#5F6B63' : '#1E2A21') + '">' + label + '</span>' +
+      (we >= today ? '<div class="sum"><span>' + n + ' porsi</span><b>' + rp(n * S.price) + '</b></div>' : '') +
+      (editable ? '<div class="lk"><button class="link sm" data-a="fillWeek" data-ws="' + ws + '">Isi minggu</button><button class="link sm muted" style="font-weight:400" data-a="clearWeek" data-ws="' + ws + '">Kosongkan</button></div>' : '') + '</div>';
+    h += days.slice(0, nd).map(k => cellView(k, ym, now)).join('');
+  }
+  return h + '</div></div>';
+}
+
+function cellView(k, ym, now) {
+  const num = dnum(k);
+  if (k.slice(0, 7) !== ym) return '<div class="cell dim out"><div class="cell-h" style="opacity:.5"><b>' + num + '</b></div></div>';
+  const past = k < now.key, lk = isLocked(k, now), isT = k === now.key;
+  const lb = blockOf(S.closures, k, 'lunch'), db = blockOf(S.closures, k, 'dinner'), full = lb && db;
+  const cls = (past ? ' dim past' : full ? ' closed' : '') + (isT ? ' today' : '');
+  let tag = '', tagFg = '#9A5A0C';
+  if (full) tag = /libur|cuti/i.test(lb.reason) ? 'Libur' : 'Tutup';
+  else if (lb || db) tag = lb ? 'Siang tutup' : 'Malam tutup';
+  else if (lk && !past) { tag = 'Terkunci'; tagFg = '#5F6B63'; }
+  const chips = MEALS.map(([mk, name, meal]) => {
+    const blk = meal === 'lunch' ? lb : db;
+    if (blk) return '<button class="mc cls" disabled title="' + esc(name + ' · ' + blk.reason) + '"><span>' + name + '</span></button>';
+    if (lk) {
+      const q = savedQ(k, mk);
+      return '<button class="mc lk' + (q ? ' reg' : '') + '" disabled title="' + name + (q ? ' · terdaftar' : '') + ' · terkunci"><span>' + name + (q > 1 ? ' ×' + q : '') + '</span></button>';
+    }
+    const q = selQ(k, mk), sq = savedQ(k, mk);
+    const st = q === sq ? (q ? 'reg' : '') : q ? 'pend' : 'pend rm';
+    const title = st === 'reg' ? 'terdaftar' : st === 'pend' ? 'belum dikirim' : st === 'pend rm' ? 'akan dihapus setelah dikirim' : 'belum dipilih';
+    const shown = q || sq;
+    return '<button class="mc ' + st + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span></button>';
+  }).join('');
+  return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips + '</div>';
+}
+
+function pendingBarView(pend, now) {
+  if (!pend.length) return '';
+  const n = pend.reduce((a, c) => a + c.n, 0), delta = pend.reduce((a, c) => a + c.delta, 0), allAdd = pend.every(c => c.add);
+  const c = cutoffOf(pend[0].date), m = minsUntil(c, now);
+  const sub = m <= 24 * 60 ? 'Kirim sebelum ' + cutLabel(c) + ' — setelah itu minggu ' + weekRange(addDays(pend[0].date, -dow(pend[0].date))) + ' terkunci dan perubahan ini hilang.' : 'Pilihanmu belum tercatat sampai kamu tekan Kirim pendaftaran.';
+  return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + '</b><span>' + sub + '</span></div>' +
+    '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit"' + (S.submitting ? ' disabled' : '') + '>' + (S.submitting ? 'Mengirim…' : 'Kirim pendaftaran') + '</button></div>';
+}
+
+function summaryView(ym, now, pend) {
+  const st = monthStatus(ym, now, pend), t = st.t, cur = now.key.slice(0, 7);
+  let soFar = 0;
+  daysOf(cur + '-01', now.key).forEach(k => {
+    if (!blockOf(S.closures, k, 'lunch')) soFar += savedQ(k, 'l');
+    if (!blockOf(S.closures, k, 'dinner')) soFar += savedQ(k, 'd');
+  });
+  return '<div class="sum-card"><div class="sum-h"><b>' + monthName(ym) + ' ' + ym.slice(0, 4) + '</b><span class="pill sm ' + st.cls + '">' + st.pill + '</span></div>' +
+    '<div class="sum-rows"><div class="r2"><span>Makan siang</span><span>' + t.l + ' porsi</span></div><div class="r2"><span>Makan malam</span><span>' + t.d + ' porsi</span></div>' +
+    '<div class="r2"><span>Kantin tutup</span><span>' + t.closed + ' hari</span></div><div class="div"></div>' +
+    '<div class="r2" style="align-items:baseline"><span>Potongan gaji</span><span class="sum-total">' + rp((t.l + t.d) * S.price) + '</span></div></div>' +
+    '<span class="note">' + (pend.length ? 'Termasuk pilihan yang belum dikirim.' : 'Semua pilihan sudah terkirim.') + '</span><div class="div" style="margin:0"></div>' +
+    '<div class="sum-rows"><span style="font-size:14px;font-weight:700">' + monthName(cur) + ' sejauh ini</span>' +
+    '<div class="r2"><span>Porsi terdaftar</span><span>' + soFar + ' porsi</span></div>' +
+    '<div class="r2"><span>Potongan sejauh ini</span><span style="font-weight:700">' + rp(soFar * S.price) + '</span></div>' +
+    '<span class="note">Dipotong dari gaji akhir bulan.</span></div></div>';
+}
+
+function popView() {
+  const P = S.pop;
+  if (!P) return '';
+  const q = selQ(P.k, P.mk), max = S.settings.maxPortions;
+  return '<div class="layer" data-a="closePop"></div><div class="pop" style="left:' + P.x + 'px;top:' + P.y + 'px">' +
+    '<span class="pop-t">' + FD[dow(P.k)] + ', ' + dnum(P.k) + ' ' + MON[mnum(P.k)] + ' · ' + (P.mk === 'l' ? 'Makan siang' : 'Makan malam') + '</span>' +
+    '<div class="stepper"><button class="step" data-a="qty" data-n="-1" title="Kurangi porsi"' + (q <= 1 ? ' disabled' : '') + '>−</button>' +
+    '<div class="qty"><b>' + q + ' porsi</b><span>' + rp(q * S.price) + '</span></div>' +
+    '<button class="step" data-a="qty" data-n="1" title="Tambah porsi"' + (q >= max ? ' disabled' : '') + '>+</button></div>' +
+    '<span class="note">1 porsi untuk kamu. Porsi tambahan untuk tamu atau dibawa pulang, maks. ' + max + '.</span>' +
+    '<div class="pop-a"><button class="del" data-a="popRemove">Hapus</button><button class="btn-primary" style="padding:0;font-weight:600" data-a="closePop">Selesai</button></div></div>';
+}
+
+function fbModalView() {
+  const f = S.fbDraft;
+  if (!f) return '';
+  const menu = (S.menus[f.k] || {})[f.meal];
+  return '<div class="backdrop" data-a="closeFb"></div><div class="modal" role="dialog" aria-modal="true">' +
+    '<div class="modal-h"><span>' + (f.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(f.k) + '</span><b>' + esc(menu || (f.meal === 'lunch' ? 'Makan siang' : 'Makan malam')) + '</b></div>' +
+    '<div class="sec"><b>Bagaimana rasanya?</b><div class="rates">' + RATES.map(r => '<button class="rate' + (f.r === r[0] ? ' ' + r[0] : '') + '" data-a="fbRate" data-r="' + r[0] + '">' + r[1] + '</button>').join('') + '</div></div>' +
+    '<div class="sec"><b>Ada catatan? <span style="font-weight:400;color:#5F6B63">(opsional)</span></b><div class="chips">' +
+    S.fbTags.map(t => '<button class="chip' + (f.tags.indexOf(t) >= 0 ? ' on' : '') + '" data-a="fbTag" data-t="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>' +
+    '<textarea class="input" rows="3" maxlength="500" data-f="fbNote" data-in="fbNote" placeholder="Tulis masukan untuk tim dapur">' + esc(f.note) + '</textarea></div>' +
+    '<span class="note">Tim dapur melihat masukan tanpa nama. Bisa diubah sampai ' + fmt(addDays(f.k, S.fbEditDays)) + '.</span>' +
+    '<div class="modal-a"><button class="btn" data-a="closeFb">Batal</button><button class="btn-primary" data-a="sendFb"' + (!f.r || f.busy ? ' disabled' : '') + '>' + (f.busy ? 'Mengirim…' : f.isEdit ? 'Perbarui penilaian' : 'Kirim penilaian') + '</button></div></div>';
+}
+
+// selection helpers
+function setQty(k, mk, q) {
+  const cur = S.sel[k] || { l: 0, d: 0 };
+  S.sel[k] = Object.assign({ l: 0, d: 0 }, cur, { [mk]: Math.max(0, Math.min(S.settings.maxPortions, q)) });
+}
+function canEdit(k, mk, now) {
+  return !isLocked(k, now) && !blockOf(S.closures, k, mk === 'l' ? 'lunch' : 'dinner');
+}
+function fillDay(k, fm, now) {
+  if (fm !== 'dinner' && canEdit(k, 'l', now)) setQty(k, 'l', Math.max(1, selQ(k, 'l')));
+  if (fm !== 'lunch' && canEdit(k, 'd', now)) setQty(k, 'd', Math.max(1, selQ(k, 'd')));
+}
+function clearDays(ks, label) {
+  const prev = clone(S.sel), now = nowJ();
+  ks.forEach(k => { if (!isLocked(k, now)) { if (canEdit(k, 'l', now)) setQty(k, 'l', 0); if (canEdit(k, 'd', now)) setQty(k, 'd', 0); } });
+  flash(label + ' dikosongkan', () => { S.sel = prev; });
+}
+function openPop(el, k, mk) {
+  const r = el.getBoundingClientRect(), w = 260, h = 270;
+  const x = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), window.innerWidth - w - 12);
+  let y = r.bottom + 6;
+  if (y + h > window.innerHeight) y = Math.max(12, r.top - h - 6);
+  S.pop = { k, mk, x: Math.round(x), y: Math.round(y) };
+}
+function openFb(k, meal, r) {
+  const ex = S.fb[k + '-' + meal];
+  S.fbDraft = { k, meal, r: r || (ex ? ex.r : null), tags: ex ? ex.tags.slice() : [], note: ex ? ex.note : '', isEdit: !!ex, busy: false };
+}
+
+// ------------------------------------------------------------ admin: recap
+function recapView() {
+  const H = S.hr;
+  let h = '<main><div class="ph"><h1>Rekap porsi</h1><span>Jumlah porsi dan karyawan yang mendaftar makan</span></div>' +
+    '<nav class="tabs">' + [['day', 'Harian'], ['month', 'Bulanan'], ['fb', 'Masukan']].map(t => '<button class="tab' + (H.mode === t[0] ? ' on' : '') + '" data-a="hrMode" data-v="' + t[0] + '">' + t[1] + '</button>').join('') + '</nav>';
+  h += H.mode === 'day' ? dayView() : H.mode === 'month' ? monthView() : feedbackView();
+  return h + '</main>';
+}
+
+function storeAgg(stores, split) {
+  const t = [0, 0, 0, 0];
+  const rows = stores.map(st => { const v = split[st] || [0, 0, 0, 0]; v.forEach((n, i) => { t[i] += n; }); return { store: st, v, total: v[0] + v[1] + v[2] + v[3] }; });
+  return { rows, t, total: t[0] + t[1] + t[2] + t[3] };
+}
+function splitOfRows(rows, stores) {
+  const sp = {}, list = stores.slice();
+  list.forEach(s => { sp[s] = [0, 0, 0, 0]; });
+  rows.forEach(r => {
+    if (!sp[r.store]) { sp[r.store] = [0, 0, 0, 0]; list.push(r.store); }
+    const o = r.collar === 'white' ? 0 : 2;
+    sp[r.store][o] += r.l; sp[r.store][o + 1] += r.d;
+  });
+  return storeAgg(list, sp);
+}
+function storeTableView(title, agg, actions, headPad) {
+  const cell = v => '<span class="r">' + nf(v) + '</span>';
+  return '<div class="tbl x"><div style="min-width:680px"><div class="tbar"><div class="t"><b>' + title + '</b><span>White collar ' + nf(agg.t[0] + agg.t[1]) + ' porsi · Blue collar ' + nf(agg.t[2] + agg.t[3]) + ' porsi</span></div>' + (actions || '') + '</div>' +
+    '<div class="grp" style="grid-template-columns:' + STORE_COLS + '"><span></span><span class="w">White collar</span><span class="b">Blue collar</span><span></span></div>' +
+    '<div class="tr th" style="grid-template-columns:' + STORE_COLS + ';padding:' + (headPad || '10px 20px 14px') + '"><span>Store</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
+    agg.rows.map(r => '<div class="tr" style="grid-template-columns:' + STORE_COLS + '"><span class="ell" style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + '<span class="r" style="font-weight:700">' + nf(r.total) + '</span></div>').join('') +
+    (agg.rows.length ? '' : '<div class="empty">Belum ada data karyawan.</div>') +
+    '<div class="tr tot" style="grid-template-columns:' + STORE_COLS + '"><span>Total</span>' + agg.t.map(cell).join('') + '<span class="r">' + nf(agg.total) + '</span></div></div></div>';
+}
+
+function daySums(day) {
+  let l = 0, d = 0, pl = 0, pd = 0;
+  day.rows.forEach(r => { l += r.l; d += r.d; if (r.l) pl++; if (r.d) pd++; });
+  return { l, d, pl, pd, n: day.rows.length };
+}
+
+function cutInfo(k, now) {
+  const c = cutoffOf(k), ws = addDays(k, -dow(k));
+  const when = FD[dow(c.key)] + ' ' + dnum(c.key) + ' ' + FMN[mnum(c.key)] + ', ' + S.settings.cutTime;
+  const CDN = { 5: 'Rabu', 4: 'Kamis', 3: 'Jumat', 2: 'Sabtu', 1: 'Minggu' };
+  const rule = 'Batas: setiap ' + CDN[S.settings.cutDays] + ' pukul ' + S.settings.cutTime + ' sebelum minggu makan';
+  if (k < now.key) return { head: 'Sudah lewat · data final', short: 'Sudah lewat', sub: rule, lk: true };
+  if (isLocked(k, now)) return { head: 'Porsi sudah pasti · pendaftaran minggu ' + weekRange(ws) + ' ditutup ' + when, short: 'Porsi sudah pasti', sub: rule, lk: true };
+  return { head: 'Masih bisa berubah · ditutup ' + when + ' (' + leftTxt(minsUntil(c, now)) + ' lagi)', short: 'Masih bisa berubah', sub: rule, lk: false };
+}
+
+function dayView() {
+  const H = S.hr, now = nowJ(), day = H.day && H.day.date === H.date ? H.day : null, ci = cutInfo(H.date, now);
+  const minD = addDays(now.key, -400), maxD = addDays(now.key, 120);
+  let h = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><span class="h20">' + fmtLong(H.date) + '</span>' +
+    '<input type="date" class="input lg" style="width:200px" data-ch="hrDate" value="' + H.date + '" min="' + minD + '" max="' + maxD + '"></div>';
+  h += '<div class="cut' + (ci.lk ? ' lk' : '') + '"><div class="cut-r"><div class="t"><b>' + ci.head + '</b><span>' + ci.sub + '</span></div>' +
+    (H.cutEdit ? '' : '<button class="btn" data-a="cutEdit">Atur batas</button>') + '</div>' +
+    (H.cutEdit ? '<div class="cut-edit"><label class="field"><span class="lbl">Pendaftaran ditutup setiap</span><select class="input" style="width:220px" data-ch="cutD">' +
+      [[5, 'Rabu'], [4, 'Kamis'], [3, 'Jumat'], [2, 'Sabtu'], [1, 'Minggu']].map(o => '<option value="' + o[0] + '"' + (H.cutD === o[0] ? ' selected' : '') + '>' + o[1] + ' sebelumnya</option>').join('') + '</select></label>' +
+      '<label class="field"><span class="lbl">Pukul</span><input type="time" class="input" style="width:140px" data-ch="cutT" value="' + H.cutT + '"></label>' +
+      '<div style="display:flex;gap:8px"><button class="btn-primary sm" data-a="cutSave">Simpan</button><button class="btn" data-a="cutCancel">Batal</button></div>' +
+      '<span class="nt">Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi.</span></div>' : '') + '</div>';
+  if (!day) return h + '<div class="tbl"><div class="empty">Memuat data ' + fmt(H.date) + '…</div></div>';
+
+  const s = daySums(day);
+  h += '<div class="stats">' +
+    statView('Makan siang', day.lb ? 'Tutup' : nf(s.l), day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30', !!day.lb) +
+    statView('Makan malam', day.db ? 'Tutup' : nf(s.d), day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00', !!day.db) +
+    statView('Total porsi', nf(s.l + s.d), s.n + ' karyawan terdaftar') + '</div>';
+  h += storeTableView('Kebutuhan dapur per store', splitOfRows(day.rows, day.stores),
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="openPrint">Cetak untuk dapur</button><button class="btn" data-a="exportKitchen">Ekspor untuk dapur</button></div>');
+
+  const rows = detailRows(day);
+  const sortCols = [['nik', 'NIK', 0], ['name', 'Nama', 0], ['dept', 'Departemen', 0], ['store', 'Store', 0], ['l', 'Siang', 1], ['d', 'Malam', 1]];
+  h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Detail karyawan</b><span>' + rows.length + ' karyawan</span></div>' +
+    '<select class="input" style="width:170px" data-ch="hrMeal">' + [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']].map(o => '<option value="' + o[0] + '"' + (H.meal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+    '<select class="input" style="width:170px" data-ch="hrStore"><option value="all">Semua store</option>' + day.stores.map(st => '<option' + (H.store === st ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>' +
+    '<input class="input" style="width:230px" data-f="q" data-in="q" value="' + esc(H.q) + '" placeholder="Cari nama, NIK, departemen">' +
+    '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
+    '<div style="overflow-x:auto"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
+    sortCols.map(c => { const on = H.sort.k === c[0]; return '<button class="sort' + (on ? ' on' : '') + (c[2] ? ' num' : '') + '" data-a="sort" data-k="' + c[0] + '">' + c[1] + '<span style="font-size:12px">' + (on ? (H.sort.dir > 0 ? '▲' : '▼') : '') + '</span></button>'; }).join('') + '</div>' +
+    '<div class="tbody" data-keep="detail">' + rows.map(r => '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#3F4A43">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#3F4A43">' + esc(r.dept) + '</span><span class="ell" style="color:#3F4A43">' + esc(r.store) + '</span>' +
+      '<span class="r" style="color:' + (r.l ? '#1E2A21' : '#8A948D') + '">' + (r.l || '—') + '</span><span class="r" style="color:' + (r.d ? '#1E2A21' : '#8A948D') + '">' + (r.d || '—') + '</span></div>').join('') +
+    (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
+    '</div></div></div></div>';
+  return h;
+}
+
+function statView(label, value, sub, warnSub, color) {
+  return '<div class="stat"><span class="l">' + label + '</span><span class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</span><span class="s' + (warnSub ? ' warn' : '') + '">' + esc(sub) + '</span></div>';
+}
+
+function detailRows(day) {
+  const H = S.hr, q = H.q.trim().toLowerCase(), so = H.sort;
+  return day.rows.filter(r => (H.meal === 'all' || (H.meal === 'lunch' ? r.l : r.d)) && (H.store === 'all' || r.store === H.store) &&
+    (!q || (r.name + ' ' + r.nik + ' ' + r.dept + ' ' + r.store).toLowerCase().indexOf(q) >= 0))
+    .sort((a, b) => { const va = a[so.k], vb = b[so.k]; return ((typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * so.dir) || a.name.localeCompare(b.name); });
+}
+
+function monthView() {
+  const H = S.hr, now = nowJ(), cur = now.key.slice(0, 7), m = H.month && H.month.ym === H.ym ? H.month : null;
+  const opts = []; for (let i = -6; i <= 2; i++) opts.push(addMonths(cur, i));
+  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center"><select class="input lg" style="width:200px" data-ch="hrYm">' +
+    opts.map(o => '<option value="' + o + '"' + (o === H.ym ? ' selected' : '') + '>' + monthName(o) + ' ' + o.slice(0, 4) + '</option>').join('') + '</select><div class="spacer"></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
+  if (!m) return h + '<div class="tbl"><div class="empty">Memuat ' + monthName(H.ym) + '…</div></div>';
+  let tL = 0, tD = 0;
+  m.days.forEach(x => { tL += x.l; tD += x.d; });
+  const wd = m.days.filter(x => dow(x.date) < 5);
+  const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
+  const peak = m.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, m.days[0]);
+  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja') +
+    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja') +
+    statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran') + '</div>';
+  h += storeTableView('Per store', storeAgg(m.stores, m.split), '', '10px 20px 14px');
+  const max = Math.max(1, ...m.days.map(x => x.l + x.d));
+  h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
+    m.days.map(x => {
+      const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key;
+      const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
+      const numFg = full ? '#8A948D' : '#1E2A21';
+      return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#FAFAF8' : '') + '">' +
+        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5F6B63' : '#1E2A21') + '">' + DAYS[dow(x.date)] + ' ' + dnum(x.date) + '</span>' + pill +
+        '<span class="r" style="color:' + (x.lb ? '#8A948D' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db ? '#8A948D' : numFg) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:#3B6D45"></div><div style="width:' + (x.d / max * 100) + '%;background:#F39A1E"></div></div>' +
+        '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
+    }).join('') +
+    '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
+  return h;
+}
+
+function periodTitle(a, b) {
+  const y = b.slice(0, 4);
+  if (a.slice(0, 7) === b.slice(0, 7)) return dnum(a) + ' – ' + dnum(b) + ' ' + FMN[mnum(b)] + ' ' + y;
+  return dnum(a) + ' ' + FMN[mnum(a)] + (a.slice(0, 4) !== y ? ' ' + a.slice(0, 4) : '') + ' – ' + dnum(b) + ' ' + FMN[mnum(b)] + ' ' + y;
+}
+function tally(list) {
+  const c = { enak: 0, biasa: 0, kurang: 0 }, t = {};
+  list.forEach(e => { c[e.r]++; e.tags.forEach(g => { if (g !== 'Menu favorit') t[g] = (t[g] || 0) + 1; }); });
+  const top = Object.keys(t).map(k => [k, t[k]]).sort((a, b) => b[1] - a[1])[0];
+  return { c, n: list.length, top };
+}
+function fbFiltered() {
+  const H = S.hr;
+  return H.fb.sessions.filter(x => (H.fbMeal === 'all' || x.meal === H.fbMeal) && (H.fbRate === 'all' || x.list.some(e => e.r === 'kurang')) &&
+    (H.fbTag === 'all' || x.list.some(e => e.tags.indexOf(H.fbTag) >= 0)));
+}
+
+function feedbackView() {
+  const H = S.hr, F = H.fb;
+  const sel = (key, w, opts, cur) => '<select class="input lg" style="width:' + w + 'px" data-ch="' + key + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
+    sel('fbMeal', 200, [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']], H.fbMeal) +
+    sel('fbRate', 220, [['all', 'Semua penilaian'], ['kurang', 'Ada yang menilai Kurang']], H.fbRate) +
+    sel('fbTag', 200, [['all', 'Semua catatan']].concat(S.fbTags.slice(0, 6).map(t => [t, t])), H.fbTag) +
+    '<div class="spacer"></div><button class="btn lg" data-a="exportFb">Ekspor CSV untuk dapur</button></div>';
+  if (!F) return h + '<div class="tbl"><div class="empty">Memuat masukan…</div></div>';
+  const ses = fbFiltered(), all = tally([].concat.apply([], ses.map(x => x.list)));
+  h += '<span class="h20">' + periodTitle(F.from, F.to) + '</span><div class="stats">' +
+    statView('Respons', nf(all.n), ses.length + ' sesi makan') +
+    statView('Menilai Enak', pct(all.c.enak, all.n) + '%', pct(all.c.kurang, all.n) + '% menilai Kurang', false, pct(all.c.enak, all.n) >= 60 ? '#3B6D45' : '#9A5A0C') +
+    statView('Catatan terbanyak', all.top ? all.top[0] : '—', all.top ? all.top[1] + ' kali disebut' : 'Belum ada catatan', false, all.top ? '#9A5A0C' : null) + '</div>';
+  h += '<div class="trend"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><b style="font-size:16px">Penilaian “Enak” per minggu</b><span class="muted" style="font-size:13px">8 minggu terakhir</span></div>' +
+    '<div class="trend-g">' + F.trend.map(w => { const p = pct(w.e, w.n); return '<div class="trend-c"><b>' + (w.n ? p + '%' : '—') + '</b><i style="height:' + (w.n ? Math.max(2, p) : 0) + 'px;background:' + (p < 60 ? '#C97A1E' : '#3B6D45') + '"></i><span>' + dnum(w.ws) + ' ' + MON[mnum(w.ws)] + '</span></div>'; }).join('') + '</div></div>';
+  const selKey = H.fbSel && ses.some(x => x.date + '-' + x.meal === H.fbSel) ? H.fbSel : ses[0] ? ses[0].date + '-' + ses[0].meal : null;
+  h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + FB_COLS + '"><span>Tanggal</span><span>Waktu</span><span class="r">Respons</span><span>Penilaian</span><span>Catatan utama</span></div>' +
+    '<div class="tbody" style="max-height:420px" data-keep="fb">' + ses.map(x => {
+      const t = tally(x.list), on = x.date + '-' + x.meal === selKey, pe = pct(t.c.enak, t.n), low = pe < 50;
+      const bg = on ? '#F3F8F3' : low ? '#FFF8EC' : '#FFFFFF';
+      return '<div class="tr click" data-a="fbSel" data-k="' + x.date + '-' + x.meal + '" style="grid-template-columns:' + FB_COLS + ';font-size:14px;background:' + bg + (on ? ';box-shadow:inset 3px 0 0 #3B6D45' : '') + '">' +
+        '<span style="white-space:nowrap;font-weight:600">' + fmt(x.date) + '</span><span style="color:#3F4A43">' + (x.meal === 'lunch' ? 'Siang' : 'Malam') + '</span><span class="r">' + t.n + '</span>' +
+        '<div style="display:flex;flex-direction:column;gap:5px;min-width:0"><div class="rbar"><div style="width:' + pct(t.c.enak, t.n) + '%;background:#3B6D45"></div><div style="width:' + pct(t.c.biasa, t.n) + '%;background:#B7BDB8"></div><div style="width:' + pct(t.c.kurang, t.n) + '%;background:#C97A1E"></div></div>' +
+        '<span style="font-size:12px;font-weight:600;color:' + (low ? '#9A5A0C' : '#3F4A43') + '">' + pe + '% enak · ' + t.c.kurang + ' kurang</span></div>' +
+        '<span class="ell" style="font-size:13px;color:' + (t.top ? (t.c.kurang ? '#9A5A0C' : '#1E2A21') : '#8A948D') + '">' + (t.top ? esc(t.top[0]) + ' (' + t.top[1] + ')' : '—') + '</span></div>';
+    }).join('') + (ses.length ? '' : '<div class="empty">' + (F.sessions.length ? 'Tidak ada sesi makan yang cocok dengan filter.' : 'Belum ada masukan dalam 14 hari terakhir.') + '</div>') + '</div></div></div>';
+  const S2 = ses.find(x => x.date + '-' + x.meal === selKey);
+  if (S2) {
+    const t = tally(S2.list), order = { kurang: 0, biasa: 1, enak: 2 };
+    const cm = S2.list.filter(e => e.note || e.tags.length).sort((a, b) => order[a.r] - order[b.r]);
+    h += '<div class="cmt-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:16px">' + (S2.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(S2.date) + '</b>' +
+      '<span class="muted" style="font-size:13px">' + t.n + ' respons · ' + t.c.enak + ' enak, ' + t.c.biasa + ' biasa, ' + t.c.kurang + ' kurang</span></div><span class="adm-pill">Nama hanya terlihat oleh admin</span></div>' +
+      cm.map(e => '<div class="cmt"><span class="rp ' + e.r + '">' + RATE_LABEL[e.r] + '</span><div style="display:flex;flex-direction:column;gap:6px;min-width:0">' + (e.note ? '<span style="font-size:14px;line-height:1.45">' + esc(e.note) + '</span>' : '') +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + e.tags.map(g => '<span class="tg">' + esc(g) + '</span>').join('') + '</div></div><span style="font-size:13px;color:#5F6B63;text-align:right">' + esc(e.who) + '</span></div>').join('') +
+      (cm.length ? '' : '<span class="muted">Belum ada catatan tertulis untuk sesi ini.</span>') + '</div>';
+  }
+  return h;
+}
+
+function printView() {
+  const H = S.hr, day = H.day;
+  if (!H.print || !day) return '';
+  const s = daySums(day), agg = splitOfRows(day.rows, day.stores), ci = cutInfo(day.date, nowJ());
+  const cell = v => '<span class="r">' + nf(v) + '</span>';
+  return '<div class="print-wrap"><div class="print-col"><div class="print-a"><button class="btn" data-a="closePrint">Tutup</button><button class="btn-primary sm" data-a="doPrint">Cetak</button></div>' +
+    '<div class="sheet" id="kprint"><div class="sheet-h"><div class="l"><small>Segari · Program Makan</small><b>Kebutuhan dapur</b><span>' + fmtLong(day.date) + '</span></div>' +
+    '<div class="rt"><b>' + ci.short + '</b><span>Dicetak ' + esc(H.printAt) + '</span></div></div>' +
+    '<div class="boxes">' +
+    '<div class="box"><small>Makan siang</small><b>' + (day.lb ? 'Tutup' : nf(s.l)) + '</b><span>' + esc(day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30') + '</span></div>' +
+    '<div class="box"><small>Makan malam</small><b>' + (day.db ? 'Tutup' : nf(s.d)) + '</b><span>' + esc(day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00') + '</span></div>' +
+    '<div class="box"><small>Total porsi</small><b>' + nf(s.l + s.d) + '</b><span>' + s.n + ' karyawan</span></div></div>' +
+    '<div style="display:flex;flex-direction:column"><div class="pt g"><i></i><span>White collar</span><span>Blue collar</span><i></i></div>' +
+    '<div class="pt h"><span>Store</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
+    agg.rows.map(r => '<div class="pt b"><span style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + '<span class="r" style="font-weight:800">' + nf(r.total) + '</span></div>').join('') +
+    '<div class="pt t"><span>Total</span>' + agg.t.map(cell).join('') + '<span class="r">' + nf(agg.total) + '</span></div></div></div></div></div>';
+}
+
+// ------------------------------------------------------------ admin: closures
+function closureRange() {
+  const C = S.cl, to = C.to < C.from ? C.from : C.to, out = [];
+  for (let k = C.from; k <= to; k = addDays(k, 1)) { if (C.skip && dow(k) >= 5 && k !== C.from) continue; out.push(k); }
+  return out;
+}
+
+function closureView() {
+  const C = S.cl, now = nowJ(), ks = closureRange();
+  const opts = daysOf(now.key, addDays(now.key, 90));
+  const dsel = (key, cur, list) => '<select class="input lg" data-ch="' + key + '">' + list.map(k => '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + fmt(k) + '</option>').join('') + '</select>';
+  const im = C.impact && C.impKey === ks.join(',') + '|' + C.meal ? C.impact : null;
+  const taken = C.data ? C.data.taken : [], ovl = ks.filter(k => taken.indexOf(k) >= 0);
+  const reason = C.reason.trim() || 'Kantin tidak tersedia';
+  let h = '<main><div class="ph"><h1>Tutup kantin</h1><span>Tutup satu tanggal atau rentang. Pendaftaran di tanggal itu dibatalkan, karyawan diberi tahu dan tidak dikenai biaya.</span></div>';
+  h += '<div class="cl-wrap"><div class="cl-form"><b>Tutup tanggal baru</b>' +
+    '<div class="cl-f"><span class="lbl">Tanggal</span><div class="range">' + dsel('clFrom', C.from, opts) + '<span class="muted">sampai</span>' + dsel('clTo', C.to < C.from ? C.from : C.to, opts.filter(k => k >= C.from)) + '</div>' +
+    '<label class="check"><input type="checkbox" data-ch="clSkip"' + (C.skip ? ' checked' : '') + '><span>Lewati Sabtu &amp; Minggu</span></label></div>' +
+    '<div class="cl-f"><span class="lbl">Waktu makan</span><div class="seg">' + [['both', 'Siang & malam'], ['lunch', 'Siang'], ['dinner', 'Malam']].map(o => '<button class="' + (C.meal === o[0] ? 'on' : '') + '" data-a="clMeal" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>' +
+    '<div class="cl-f"><span class="lbl">Alasan</span><div class="chips">' + REASONS.map(r => '<button class="chip' + (C.reason === r ? ' on' : '') + '" data-a="clReason" data-v="' + r + '">' + r + '</button>').join('') + '</div>' +
+    '<input class="input lg" style="width:100%" data-f="clReason" data-in="clReason" value="' + esc(C.reason) + '" placeholder="Atau tulis alasan lain" maxlength="120"></div></div>';
+  h += '<div class="ring"><span class="lbl">Ringkasan</span><div class="rg"><b>' + fmtRange(ks) + '</b><span>' + ks.length + ' hari · ' + MEAL_NAME[C.meal] + '</span></div>' +
+    '<div class="imp"><div><b>' + (im ? nf(im.people) : '…') + '</b><span>karyawan sudah daftar</span></div><div><b>' + (im ? nf(im.portions) : '…') + '</b><span>porsi dibatalkan</span></div></div>' +
+    (ovl.length ? '<span class="ovl">' + ovl.length + ' tanggal sudah ditutup sebelumnya dan akan diganti dengan pengaturan ini.</span>' : '') +
+    '<div class="sec" style="gap:6px"><span class="lbl">Pesan ke karyawan</span><div class="msg">Kantin tutup ' + fmtRange(ks) + ' (' + MEAL_NAME[C.meal].toLowerCase() + ') · ' + esc(reason) + '. Pendaftaranmu dibatalkan dan tidak ada biaya.</div></div>' +
+    '<button class="cta" data-a="addClosure"' + (!ks.length || C.busy ? ' disabled' : '') + '>' + (C.busy ? 'Menyimpan…' : 'Tutup ' + ks.length + ' hari & beri tahu ' + (im ? nf(im.people) : '…') + ' karyawan') + '</button></div></div>';
+  const list = C.data ? C.data.list : null;
+  h += '<div class="upc"><div class="upc-h"><b>Jadwal tutup mendatang</b><span>' + (list ? list.length + ' jadwal' : '') + '</span></div>' +
+    (!list ? '<span class="upc-e">Memuat…</span>' : list.length ? list.map(x => '<div class="upc-r"><div class="t"><b>' + fmtRange(x.dates) + (x.dates.length > 1 ? ' · ' + x.dates.length + ' hari' : '') + '</b><span>' + MEAL_NAME[x.meal] + ' · ' + esc(x.reason) + '</span></div>' +
+      '<span class="im">' + nf(x.impact.people) + ' karyawan · ' + nf(x.impact.portions) + ' porsi</span><button class="btn" data-a="reopen" data-g="' + esc(x.g) + '">Buka kembali</button></div>').join('') : '<span class="upc-e">Belum ada tanggal yang ditutup.</span>') + '</div>';
+  return h + '</main>';
+}
+
+// ------------------------------------------------------------ data loading
+function load(key, action, payload, apply) {
+  if (S.loading[key]) return;
+  S.loading[key] = true;
+  call(action, payload).then(d => { S.loading[key] = false; apply(d); render(); }).catch(e => { S.loading[key] = false; fail(e); });
+}
+function ensureData() {
+  if (!S.user || !S.user.admin) return;
+  const H = S.hr, C = S.cl;
+  if (S.view === 'recap') {
+    if (H.mode === 'day' && (!H.day || H.day.date !== H.date)) load('day:' + H.date, 'adminDay', { date: H.date }, d => { if (d.date === H.date) { H.day = d; S.settings = d.settings; } });
+    if (H.mode === 'month' && (!H.month || H.month.ym !== H.ym)) load('month:' + H.ym, 'adminMonth', { ym: H.ym }, d => { if (d.ym === H.ym) H.month = d; });
+    if (H.mode === 'fb' && !H.fb) load('fb', 'adminFeedback', {}, d => { H.fb = d; });
+  }
+  if (S.view === 'closure') {
+    if (!C.data) load('closures', 'adminClosures', {}, d => { C.data = d; });
+    const ks = closureRange(), key = ks.join(',') + '|' + C.meal;
+    if (C.impKey !== key) {
+      C.impKey = key; C.impact = null;
+      clearTimeout(ensureData.t);
+      ensureData.t = setTimeout(() => {
+        call('adminImpact', { dates: ks, meal: C.meal }).then(d => { if (C.impKey === key) { C.impact = d; render(); } }).catch(fail);
+      }, 250);
+    }
+  }
+}
+async function refreshEmployee() {
+  try {
+    const d = await call('bootstrap');
+    const now = nowJ(), pend = pendingChanges(now), keepSel = {};
+    pend.forEach(c => { keepSel[c.date] = { l: c.l, d: c.d }; });
+    S.saved = d.reg; S.sel = Object.assign(clone(d.reg), keepSel); S.closures = d.closures; S.settings = d.settings; S.menus = d.menus; S.fb = d.fb;
+    render();
+  } catch (e) { fail(e); }
+}
+
+// ------------------------------------------------------------ CSV export
+const csvq = v => { const s = String(v == null ? '' : v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+function download(name, lines, msg) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  flash(msg + ' · ' + Math.max(0, lines.filter(Boolean).length - 1) + ' baris');
+}
+function storeLines(agg) {
+  const out = ['Store,White collar siang,White collar malam,Blue collar siang,Blue collar malam,Total'];
+  agg.rows.forEach(r => out.push([csvq(r.store)].concat(r.v, [r.total]).join(',')));
+  out.push(['Total'].concat(agg.t, [agg.total]).join(','));
+  return out;
+}
+const collarName = c => c === 'blue' ? 'Blue collar' : 'White collar';
+const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi)';
+
+// ------------------------------------------------------------ actions
+const A = {
+  nav(el) { S.view = el.dataset.v; ls.set('pm-view', S.view); S.pop = null; render(); },
+  toggleNav() { S.navClosed = !S.navClosed; ls.set('pm-navClosed', S.navClosed ? '1' : '0'); render(); },
+  logout() {
+    const n = pendingChanges(nowJ()).reduce((a, c) => a + c.n, 0);
+    if (n && !window.confirm('Ada ' + n + ' perubahan yang belum dikirim. Keluar tanpa mengirim?')) return;
+    signOut('');
+  },
+  undo() { const u = S.toast && S.toast.undo; S.toast = null; if (u) { u(); flash('Dikembalikan'); } else render(); },
+
+  // employee
+  month(el) { S.mi = Number(el.dataset.i); S.pop = null; render(); },
+  toggleWknd() { S.hideWknd = !S.hideWknd; ls.set('pm-hideWknd', S.hideWknd ? '1' : '0'); render(); },
+  fillWeek(el) { const now = nowJ(), ym = S.months[S.mi]; daysOf(el.dataset.ws, addDays(el.dataset.ws, 6)).filter(k => k.slice(0, 7) === ym).forEach(k => fillDay(k, 'both', now)); render(); },
+  clearWeek(el) { const ws = el.dataset.ws, ym = S.months[S.mi]; clearDays(daysOf(ws, addDays(ws, 6)).filter(k => k.slice(0, 7) === ym), 'Minggu ' + weekRange(ws)); },
+  discard() { S.sel = clone(S.saved); S.pop = null; flash('Perubahan dibatalkan'); },
+  async submit() {
+    const now = nowJ(), pend = pendingChanges(now);
+    if (!pend.length || S.submitting) return;
+    const n = pend.reduce((a, c) => a + c.n, 0);
+    S.submitting = true; S.pop = null; render();
+    try {
+      const r = await call('saveRegistrations', { changes: pend.map(c => ({ date: c.date, l: c.l, d: c.d })) });
+      S.saved = r.reg; S.sel = clone(r.reg); S.submitting = false;
+      flash(r.skipped ? 'Sebagian terkirim · ' + r.skipped + ' tanggal sudah terkunci dan tidak tersimpan' : 'Pendaftaran terkirim · ' + n + ' perubahan tercatat');
+    } catch (e) { S.submitting = false; render(); fail(e); }
+  },
+  closePop() { S.pop = null; render(); },
+  qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
+  popRemove() { const P = S.pop; setQty(P.k, P.mk, 0); S.pop = null; render(); },
+  bannerRate(el) { openFb(nowJ().key, 'lunch', el.dataset.r); render(); },
+  dismissBanner() { ls.set('pm-fbDismiss', nowJ().key); render(); },
+  openFb(el) { openFb(el.dataset.k, el.dataset.m); render(); },
+  closeFb() { S.fbDraft = null; render(); },
+  fbRate(el) { S.fbDraft.r = el.dataset.r; render(); },
+  fbTag(el) { const f = S.fbDraft, t = el.dataset.t, i = f.tags.indexOf(t); if (i >= 0) f.tags.splice(i, 1); else f.tags.push(t); render(); },
+  async sendFb() {
+    const f = S.fbDraft;
+    if (!f || !f.r || f.busy) return;
+    f.busy = true; render();
+    try {
+      const r = await call('saveFeedback', { date: f.k, meal: f.meal, r: f.r, tags: f.tags, note: f.note });
+      S.fb[r.key] = r.fb; S.fbDraft = null;
+      flash('Terima kasih! Masukanmu terkirim ke tim dapur');
+    } catch (e) { f.busy = false; render(); fail(e); }
+  },
+
+  // admin recap
+  hrMode(el) { S.hr.mode = el.dataset.v; if (S.hr.mode === 'fb') S.hr.fb = null; render(); },
+  sort(el) { const k = el.dataset.k, so = S.hr.sort, num = k === 'l' || k === 'd'; S.hr.sort = { k, dir: so.k === k ? -so.dir : num ? -1 : 1 }; render(); },
+  openDay(el) { S.hr.mode = 'day'; S.hr.date = el.dataset.k; S.hr.meal = 'all'; render(); },
+  cutEdit() { S.hr.cutEdit = true; S.hr.cutD = S.settings.cutDays; S.hr.cutT = S.settings.cutTime; render(); },
+  cutCancel() { S.hr.cutEdit = false; render(); },
+  async cutSave() {
+    const H = S.hr;
+    try {
+      S.settings = await call('saveSettings', { cutDays: H.cutD, cutTime: H.cutT || '23:59' });
+      H.cutEdit = false;
+      flash('Batas diubah ke ' + FD[(7 - S.settings.cutDays) % 7] + ' ' + S.settings.cutTime);
+    } catch (e) { fail(e); }
+  },
+  openPrint() { const now = nowJ(); S.hr.print = true; S.hr.printAt = fmt(now.key) + ' ' + String(Math.floor(now.min / 60)).padStart(2, '0') + ':' + String(now.min % 60).padStart(2, '0'); render(); },
+  closePrint() { S.hr.print = false; render(); },
+  doPrint() { window.print(); },
+  exportKitchen() {
+    const H = S.hr;
+    if (H.mode === 'month') {
+      const m = H.month; if (!m) return;
+      const lines = ['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan'];
+      m.days.forEach(x => { const b = x.lb || x.db; lines.push([x.date, x.l, x.d, x.l + x.d, b ? csvq('Tutup ' + (x.lb && x.db ? 'siang+malam' : x.lb ? 'siang' : 'malam') + ': ' + b.reason) : ''].join(',')); });
+      lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
+      return download('dapur-porsi-' + H.ym + '.csv', lines, 'Ekspor untuk dapur');
+    }
+    const d = H.day; if (!d) return;
+    const s = daySums(d);
+    const lines = ['Tanggal,' + d.date, 'Makan siang,' + (d.lb ? 'Tutup' : s.l), 'Makan malam,' + (d.db ? 'Tutup' : s.d), ''].concat(storeLines(splitOfRows(d.rows, d.stores)));
+    download('dapur-porsi-' + d.date + '.csv', lines, 'Ekspor untuk dapur');
+  },
+  exportDetail() {
+    const H = S.hr;
+    if (H.mode === 'month') {
+      call('adminMonthDetail', { ym: H.ym }).then(rows => {
+        download('detail-karyawan-' + H.ym + '.csv', [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(','))), 'Detail karyawan diekspor');
+      }).catch(fail);
+      return;
+    }
+    const d = H.day; if (!d) return;
+    download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d].join(','))), 'Detail karyawan diekspor');
+  },
+  exportFb() {
+    if (!S.hr.fb) return;
+    const lines = ['Tanggal,Waktu,Penilaian,Catatan,Komentar'];
+    fbFiltered().forEach(x => x.list.forEach(e => lines.push([x.date, x.meal === 'lunch' ? 'Siang' : 'Malam', e.r, csvq(e.tags.join('; ')), csvq(e.note)].join(','))));
+    download('masukan-makan-tanpa-nama.csv', lines, 'CSV diekspor tanpa nama');
+  },
+  fbSel(el) { S.hr.fbSel = el.dataset.k; render(); },
+
+  // admin closures
+  clMeal(el) { S.cl.meal = el.dataset.v; render(); },
+  clReason(el) { S.cl.reason = S.cl.reason === el.dataset.v ? '' : el.dataset.v; render(); },
+  async addClosure() {
+    const C = S.cl, ks = closureRange();
+    if (!ks.length || C.busy) return;
+    const people = C.impact ? C.impact.people : null;
+    C.busy = true; render();
+    try {
+      C.data = await call('addClosure', { dates: ks, meal: C.meal, reason: C.reason });
+      C.busy = false; C.reason = ''; C.impKey = '';
+      S.hr.day = S.hr.month = null;
+      flash(fmtRange(ks) + ' ditutup' + (people != null ? ' · ' + nf(people) + ' karyawan diberi tahu' : ''));
+      refreshEmployee();
+    } catch (e) { C.busy = false; render(); fail(e); }
+  },
+  async reopen(el) {
+    try {
+      S.cl.data = await call('removeClosure', { g: el.dataset.g });
+      S.cl.impKey = ''; S.hr.day = S.hr.month = null;
+      flash('Jadwal dibuka kembali');
+      refreshEmployee();
+    } catch (e) { fail(e); }
+  }
+};
+
+// input handlers (no re-render unless derived UI depends on the value)
+const IN = {
+  nik(v) { S.nik = v; if (S.loginErr) { S.loginErr = ''; render(); } },
+  nm(v) { S.nm = v; if (S.loginErr) { S.loginErr = ''; render(); } },
+  fbNote(v) { if (S.fbDraft) S.fbDraft.note = v; },
+  q(v) { S.hr.q = v; render(); },
+  clReason(v) { S.cl.reason = v; render(); }
+};
+const CH = {
+  quick(v) {
+    if (!v) return;
+    const now = nowJ(), ym = S.months[S.mi], days = daysOf(ym + '-01', monthEnd(ym)).filter(k => !isLocked(k, now));
+    if (v === 'clear') return clearDays(days, monthName(ym));
+    const parts = v.split('-'), ds = days.filter(k => parts[0] === 'all' || dow(k) < 5);
+    ds.forEach(k => fillDay(k, parts[1], now));
+    flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
+  },
+  hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
+  hrMeal(v) { S.hr.meal = v; render(); },
+  hrStore(v) { S.hr.store = v; render(); },
+  hrYm(v) { S.hr.ym = v; render(); },
+  cutD(v) { S.hr.cutD = Number(v); },
+  cutT(v) { S.hr.cutT = v; },
+  fbMeal(v) { S.hr.fbMeal = v; render(); },
+  fbRate(v) { S.hr.fbRate = v; render(); },
+  fbTag(v) { S.hr.fbTag = v; render(); },
+  clFrom(v) { S.cl.from = v; if (S.cl.to < v) S.cl.to = v; render(); },
+  clTo(v) { S.cl.to = v; render(); },
+  clSkip(v, el) { S.cl.skip = el.checked; render(); }
+};
+
+// chip click, drag-to-paint
+function chipOf(el) { const c = el && el.closest && el.closest('[data-chip]'); if (!c) return null; const p = c.dataset.chip.split('|'); return { el: c, k: p[0], mk: p[1] }; }
+function paint(k, mk, on) {
+  const now = nowJ();
+  if (!canEdit(k, mk, now)) return;
+  setQty(k, mk, on ? Math.max(1, selQ(k, mk)) : 0);
+}
+
+// ------------------------------------------------------------ wiring
+function init() {
+  root = document.getElementById('app');
+  root.addEventListener('click', e => {
+    const c = chipOf(e.target);
+    if (c) {
+      if (S.suppress) { S.suppress = false; return; }
+      if (selQ(c.k, c.mk) > 0) openPop(c.el, c.k, c.mk); else setQty(c.k, c.mk, 1);
+      return render();
+    }
+    const el = e.target.closest('[data-a]');
+    if (!el || el.disabled || !A[el.dataset.a]) return;
+    A[el.dataset.a](el, e);
+  });
+  root.addEventListener('input', e => { const el = e.target.closest('[data-in]'); if (el && IN[el.dataset.in]) IN[el.dataset.in](el.value, el); });
+  root.addEventListener('change', e => { const el = e.target.closest('[data-ch]'); if (el && CH[el.dataset.ch]) CH[el.dataset.ch](el.value, el); });
+  root.addEventListener('submit', e => { e.preventDefault(); if (e.target.dataset.submit === 'login') doLogin(); });
+  root.addEventListener('mousedown', e => {
+    const c = chipOf(e.target);
+    if (c && e.button === 0) S.drag = { mk: c.mk, val: !(selQ(c.k, c.mk) > 0), start: c.k, moved: false };
+  });
+  root.addEventListener('mouseover', e => {
+    const g = S.drag, c = chipOf(e.target);
+    if (!g || !c || c.mk !== g.mk || c.k === g.start) return;
+    if (!g.moved) { g.moved = true; paint(g.start, g.mk, g.val); }
+    paint(c.k, c.mk, g.val);
+    render();
+  });
+  window.addEventListener('mouseup', () => { if (S.drag && S.drag.moved) { S.suppress = true; setTimeout(() => { S.suppress = false; }, 0); } S.drag = null; });
+  window.addEventListener('scroll', () => { if (S.pop) { S.pop = null; render(); } }, true);
+  window.addEventListener('resize', () => { if (S.pop) S.pop = null; if (S.user) render(); });
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
+  });
+  window.addEventListener('beforeunload', e => { if (S.user && pendingChanges(nowJ()).length) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(() => { if (S.user && !S.drag) render(); }, 30000);
+
+  if (S.token) boot().catch(e => { S.booting = false; fail(e); if (!S.user) signOut(''); });
+  else { S.booting = false; render(); }
+}
+
+init();
+})();
+</script>
