@@ -13,6 +13,10 @@ const RATE_LABEL = { enak: 'Enak', biasa: 'Biasa', kurang: 'Kurang' };
 const MEAL_NAME = { both: 'Siang & malam', lunch: 'Makan siang', dinner: 'Makan malam' };
 const REASONS = ['Libur nasional', 'Cuti bersama', 'Perawatan dapur', 'Acara kantor'];
 const LUNCH_FB_FROM = 12 * 60, DINNER_FB_FROM = 18 * 60 + 30;
+// Meal colors: accent / tint / text on tint (all text pairs >= 4.5:1).
+const MC = { lunch: { a: '#3B6D45', t: '#E3F1E5', x: '#2B5234' }, dinner: { a: '#F39A1E', t: '#FDEBD0', x: '#8A4F00' } };
+const swatch = meal => '<i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + MC[meal].a + ';margin-right:6px;vertical-align:1px"></i>';
+const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:4px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
 const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
 const DETAIL_COLS = '96px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
 const MONTH_COLS = '110px minmax(0,1fr) 80px 80px minmax(170px,1.3fr)';
@@ -64,10 +68,10 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, submitting: false, drag: null, suppress: false,
-  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', day: null, ym: '', month: null,
-    fb: null, fbMeal: 'all', fbRate: 'all', fbTag: 'all', fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
+  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', day: null, yms: [], monthCache: {},
+    fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
-  loading: {}, toast: null
+  ms: null, loading: {}, toast: null
 };
 
 // ------------------------------------------------------------ server
@@ -191,7 +195,7 @@ async function doLogin() {
 function signOut(msg) {
   S.token = null; ls.set('pm-token', null);
   S.user = null; S.saved = {}; S.sel = {}; S.view = 'meal'; S.pop = null; S.fbDraft = null;
-  S.hr.day = S.hr.month = S.hr.fb = null; S.cl.data = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
+  S.hr.day = S.hr.fb = null; S.hr.monthCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
   render();
 }
 
@@ -202,7 +206,7 @@ async function boot() {
   S.view = d.user.admin && ['recap', 'closure'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
   S.saved = d.reg; S.sel = clone(d.reg); S.closures = d.closures; S.menus = d.menus; S.fb = d.fb; S.mi = 0;
   const now = nowJ();
-  S.hr.date = now.key; S.hr.ym = now.key.slice(0, 7);
+  S.hr.date = now.key; S.hr.yms = [now.key.slice(0, 7)];
   S.cl.from = S.cl.to = now.key;
   S.booting = false;
   render();
@@ -280,13 +284,14 @@ function thisWeekView(now) {
       if (blk) return '<div class="twm"><div class="twm-r"><span class="sq off">–</span><span class="n off ell">' + name + '</span></div></div>';
       if (!q) return '<div class="twm"><div class="twm-r"><span class="sq"></span><span class="n ell">' + name + '</span></div></div>';
       n += q;
+      const dn = meal === 'dinner' ? ' dn' : '';
       let fb = '';
       if (mealStarted(k, meal, now)) {
         const ex = S.fb[k + '-' + meal], open = fbOpen(k, now);
-        if (ex) fb = '<button class="fb-btn done" data-a="openFb" data-k="' + k + '" data-m="' + meal + '"' + (open ? ' title="Ubah penilaian"' : ' disabled') + '>Sudah dinilai · ' + RATE_LABEL[ex.r] + '</button>';
-        else if (open) fb = '<button class="fb-btn" data-a="openFb" data-k="' + k + '" data-m="' + meal + '">Beri nilai</button>';
+        if (ex) fb = '<button class="fb-btn done' + dn + '" data-a="openFb" data-k="' + k + '" data-m="' + meal + '"' + (open ? ' title="Ubah penilaian"' : ' disabled') + '>Sudah dinilai · ' + RATE_LABEL[ex.r] + '</button>';
+        else if (open) fb = '<button class="fb-btn' + dn + '" data-a="openFb" data-k="' + k + '" data-m="' + meal + '">Beri nilai</button>';
       }
-      return '<div class="twm"><div class="twm-r"><span class="sq on">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + fb + '</div>';
+      return '<div class="twm"><div class="twm-r"><span class="sq on' + dn + '">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + fb + '</div>';
     }).join('');
     return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows + '</div>';
   }).join('');
@@ -333,7 +338,8 @@ function calToolbar() {
   const opts = [['wk-lunch', 'Hari kerja · Makan siang'], ['wk-both', 'Hari kerja · Siang + malam'], ['wk-dinner', 'Hari kerja · Makan malam'], ['all-lunch', 'Setiap hari · Makan siang'], ['all-both', 'Setiap hari · Siang + malam'], ['clear', 'Kosongkan bulan ini']];
   return '<div class="toolbar"><select class="input" style="min-width:240px" data-ch="quick"><option value="">Isi cepat…</option>' +
     opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select><div class="spacer"></div>' +
-    '<div class="legend"><span><i class="sw" style="background:#3B6D45"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #3B6D45;background:#EEF6EF"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #DADDD8;background:#F7F8F6"></i>Belum dipilih</span></div>' +
+    '<div class="legend"><span><i class="sw" style="background:#3B6D45"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #3B6D45;background:#EEF6EF"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #DADDD8;background:#F7F8F6"></i>Belum dipilih</span>' +
+    ['lunch', 'dinner'].map(m => '<span style="height:24px;padding:0 8px;border-radius:999px;background:' + MC[m].t + ';color:' + MC[m].x + ';font-weight:600"><i class="sw" style="width:10px;height:10px;border-radius:3px;background:' + MC[m].a + '"></i>' + (m === 'lunch' ? 'Siang' : 'Malam') + '</span>').join('') + '</div>' +
     '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button></div>';
 }
 
@@ -376,13 +382,13 @@ function cellView(k, ym, now) {
     if (blk) return '<button class="mc cls" disabled title="' + esc(name + ' · ' + blk.reason) + '"><span>' + name + '</span></button>';
     if (lk) {
       const q = savedQ(k, mk);
-      return '<button class="mc lk' + (q ? ' reg' : '') + '" disabled title="' + name + (q ? ' · terdaftar' : '') + ' · terkunci"><span>' + name + (q > 1 ? ' ×' + q : '') + '</span></button>';
+      return '<button class="mc lk' + (q ? ' reg' : '') + (mk === 'd' ? ' dn' : '') + '" disabled title="' + name + (q ? ' · terdaftar' : '') + ' · terkunci"><span>' + name + (q > 1 ? ' ×' + q : '') + '</span></button>';
     }
     const q = selQ(k, mk), sq = savedQ(k, mk);
     const st = q === sq ? (q ? 'reg' : '') : q ? 'pend' : 'pend rm';
     const title = st === 'reg' ? 'terdaftar' : st === 'pend' ? 'belum dikirim' : st === 'pend rm' ? 'akan dihapus setelah dikirim' : 'belum dipilih';
     const shown = q || sq;
-    return '<button class="mc ' + st + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span></button>';
+    return '<button class="mc ' + st + (mk === 'd' ? ' dn' : '') + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span></button>';
   }).join('');
   return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips + '</div>';
 }
@@ -404,7 +410,7 @@ function summaryView(ym, now, pend) {
     if (!blockOf(S.closures, k, 'dinner')) soFar += savedQ(k, 'd');
   });
   return '<div class="sum-card"><div class="sum-h"><b>' + monthName(ym) + ' ' + ym.slice(0, 4) + '</b><span class="pill sm ' + st.cls + '">' + st.pill + '</span></div>' +
-    '<div class="sum-rows"><div class="r2"><span>Makan siang</span><span>' + t.l + ' porsi</span></div><div class="r2"><span>Makan malam</span><span>' + t.d + ' porsi</span></div>' +
+    '<div class="sum-rows"><div class="r2"><span>' + swatch('lunch') + 'Makan siang</span><span>' + t.l + ' porsi</span></div><div class="r2"><span>' + swatch('dinner') + 'Makan malam</span><span style="color:' + MC.dinner.x + ';font-weight:600">' + t.d + ' porsi</span></div>' +
     '<div class="r2"><span>Kantin tutup</span><span>' + t.closed + ' hari</span></div><div class="div"></div>' +
     '<div class="r2" style="align-items:baseline"><span>Potongan gaji</span><span class="sum-total">' + rp((t.l + t.d) * S.price) + '</span></div></div>' +
     '<span class="note">' + (pend.length ? 'Termasuk pilihan yang belum dikirim.' : 'Semua pilihan sudah terkirim.') + '</span><div class="div" style="margin:0"></div>' +
@@ -419,7 +425,7 @@ function popView() {
   if (!P) return '';
   const q = selQ(P.k, P.mk), max = S.settings.maxPortions;
   return '<div class="layer" data-a="closePop"></div><div class="pop" style="left:' + P.x + 'px;top:' + P.y + 'px">' +
-    '<span class="pop-t">' + FD[dow(P.k)] + ', ' + dnum(P.k) + ' ' + MON[mnum(P.k)] + ' · ' + (P.mk === 'l' ? 'Makan siang' : 'Makan malam') + '</span>' +
+    '<span class="pop-t"' + (P.mk === 'd' ? ' style="color:' + MC.dinner.x + '"' : '') + '>' + (P.mk === 'd' ? swatch('dinner') : '') + FD[dow(P.k)] + ', ' + dnum(P.k) + ' ' + MON[mnum(P.k)] + ' · ' + (P.mk === 'l' ? 'Makan siang' : 'Makan malam') + '</span>' +
     '<div class="stepper"><button class="step" data-a="qty" data-n="-1" title="Kurangi porsi"' + (q <= 1 ? ' disabled' : '') + '>−</button>' +
     '<div class="qty"><b>' + q + ' porsi</b><span>' + rp(q * S.price) + '</span></div>' +
     '<button class="step" data-a="qty" data-n="1" title="Tambah porsi"' + (q >= max ? ' disabled' : '') + '>+</button></div>' +
@@ -536,8 +542,8 @@ function dayView() {
 
   const s = daySums(day);
   h += '<div class="stats">' +
-    statView('Makan siang', day.lb ? 'Tutup' : nf(s.l), day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30', !!day.lb) +
-    statView('Makan malam', day.db ? 'Tutup' : nf(s.d), day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00', !!day.db) +
+    statView('Makan siang', day.lb ? 'Tutup' : nf(s.l), day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30', !!day.lb, null, 'lunch') +
+    statView('Makan malam', day.db ? 'Tutup' : nf(s.d), day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00', !!day.db, null, 'dinner') +
     statView('Total porsi', nf(s.l + s.d), s.n + ' karyawan terdaftar') + '</div>';
   h += storeTableView('Kebutuhan dapur per store', splitOfRows(day.rows, day.stores),
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="openPrint">Cetak untuk dapur</button><button class="btn" data-a="exportKitchen">Ekspor untuk dapur</button></div>');
@@ -558,8 +564,9 @@ function dayView() {
   return h;
 }
 
-function statView(label, value, sub, warnSub, color) {
-  return '<div class="stat"><span class="l">' + label + '</span><span class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</span><span class="s' + (warnSub ? ' warn' : '') + '">' + esc(sub) + '</span></div>';
+function statView(label, value, sub, warnSub, color, meal) {
+  if (meal === 'dinner' && !color) color = MC.dinner.x;
+  return '<div class="stat"><span class="l">' + (meal ? swatch(meal) : '') + label + '</span><span class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</span><span class="s' + (warnSub ? ' warn' : '') + '">' + esc(sub) + '</span></div>';
 }
 
 function detailRows(day) {
@@ -569,36 +576,84 @@ function detailRows(day) {
     .sort((a, b) => { const va = a[so.k], vb = b[so.k]; return ((typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * so.dir) || a.name.localeCompare(b.name); });
 }
 
+// Month picker options and the months it currently stands for (empty selection = all).
+function monthOpts() { const cur = nowJ().key.slice(0, 7), o = []; for (let i = -6; i <= 2; i++) o.push(addMonths(cur, i)); return o; }
+function selMonths() { const o = monthOpts(), f = o.filter(y => S.hr.yms.indexOf(y) >= 0); return f.length ? f : o; }
+function monthAgg(yms) {
+  const days = [], stores = [], split = {};
+  yms.forEach(y => {
+    const m = S.hr.monthCache[y];
+    days.push.apply(days, m.days);
+    m.stores.forEach(st => {
+      if (stores.indexOf(st) < 0) stores.push(st);
+      const v = m.split[st] || [0, 0, 0, 0], cur = split[st] || [0, 0, 0, 0];
+      split[st] = cur.map((n, i) => n + v[i]);
+    });
+  });
+  return { days, stores, split };
+}
+
 function monthView() {
-  const H = S.hr, now = nowJ(), cur = now.key.slice(0, 7), m = H.month && H.month.ym === H.ym ? H.month : null;
-  const opts = []; for (let i = -6; i <= 2; i++) opts.push(addMonths(cur, i));
-  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center"><select class="input lg" style="width:200px" data-ch="hrYm">' +
-    opts.map(o => '<option value="' + o + '"' + (o === H.ym ? ' selected' : '') + '>' + monthName(o) + ' ' + o.slice(0, 4) + '</option>').join('') + '</select><div class="spacer"></div>' +
+  const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1;
+  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + '<div class="spacer"></div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
-  if (!m) return h + '<div class="tbl"><div class="empty">Memuat ' + monthName(H.ym) + '…</div></div>';
+  if (yms.some(y => !H.monthCache[y])) return h + '<div class="tbl"><div class="empty">Memuat ' + (multi ? yms.length + ' bulan' : monthName(yms[0])) + '…</div></div>';
+  const m = monthAgg(yms);
   let tL = 0, tD = 0;
   m.days.forEach(x => { tL += x.l; tD += x.d; });
   const wd = m.days.filter(x => dow(x.date) < 5);
   const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
   const peak = m.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, m.days[0]);
-  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja') +
-    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja') +
+  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch') +
+    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner') +
     statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran') + '</div>';
   h += storeTableView('Per store', storeAgg(m.stores, m.split), '', '10px 20px 14px');
   const max = Math.max(1, ...m.days.map(x => x.l + x.d));
-  h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
+  h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
     m.days.map(x => {
       const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key;
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
       const numFg = full ? '#8A948D' : '#1E2A21';
       return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#FAFAF8' : '') + '">' +
-        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5F6B63' : '#1E2A21') + '">' + DAYS[dow(x.date)] + ' ' + dnum(x.date) + '</span>' + pill +
-        '<span class="r" style="color:' + (x.lb ? '#8A948D' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db ? '#8A948D' : numFg) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
-        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:#3B6D45"></div><div style="width:' + (x.d / max * 100) + '%;background:#F39A1E"></div></div>' +
+        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5F6B63' : '#1E2A21') + '">' + (multi ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
+        '<span class="r" style="color:' + (x.lb ? '#8A948D' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#8A948D' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:' + MC.lunch.a + '"></div><div style="width:' + (x.d / max * 100) + '%;background:' + MC.dinner.a + '"></div></div>' +
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
     }).join('') +
-    '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
+    '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
   return h;
+}
+
+// ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
+// Empty selection means "Semua". Each entry: label (noun), all (placeholder), w (px), opts() -> [[value, label]], get/set.
+const MS = {
+  months: { label: 'Bulan', all: 'Semua bulan', w: 200, opts: () => monthOpts().map(y => [y, monthName(y) + ' ' + y.slice(0, 4)]), get: () => S.hr.yms, set: v => { S.hr.yms = v; } },
+  fbMeal: { label: 'Waktu makan', all: 'Semua waktu makan', w: 200, opts: () => [['lunch', 'Makan siang'], ['dinner', 'Makan malam']], get: () => S.hr.fbMeal, set: v => { S.hr.fbMeal = v; } },
+  fbRate: { label: 'Penilaian', all: 'Semua penilaian', w: 220, opts: () => [['enak', 'Ada yang menilai Enak'], ['biasa', 'Ada yang menilai Biasa'], ['kurang', 'Ada yang menilai Kurang']], get: () => S.hr.fbRate, set: v => { S.hr.fbRate = v; } },
+  fbTag: { label: 'Catatan', all: 'Semua catatan', w: 200, opts: () => S.fbTags.slice(0, 6).map(t => [t, t]), get: () => S.hr.fbTag, set: v => { S.hr.fbTag = v; } }
+};
+const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+function msView(key) {
+  const c = MS[key], opts = c.opts(), sel = c.get().filter(v => opts.some(o => o[0] === v)), open = S.ms === key;
+  const one = sel.length === 1 ? opts.find(o => o[0] === sel[0])[1] : '';
+  const label = !sel.length ? esc(c.all) : one ? esc(one) : esc(c.label) + ' ·';
+  const badge = sel.length > 1 ? '<span style="flex:none;font-size:12px;font-weight:700;padding:2px 7px;border-radius:999px;background:#E3F1E5;color:#2B5234">' + sel.length + ' dipilih</span>' : '';
+  let h = '<div data-ms-root="' + key + '" style="position:relative;width:' + c.w + 'px;max-width:100%">' +
+    '<button type="button" data-a="msToggle" data-k="' + key + '" aria-haspopup="listbox" aria-expanded="' + open + '" style="width:100%;height:44px;padding:0 12px 0 14px;border-radius:10px;border:1px solid #DADDD8;background:#FFFFFF;color:#1E2A21;font-size:15px;display:flex;align-items:center;gap:8px;text-align:left">' +
+    '<span style="flex:' + (badge ? '0 1 auto' : '1') + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + label + '</span>' + badge +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-left:auto;transform:rotate(' + (open ? 180 : 0) + 'deg)"><path d="M6 9l6 6 6-6"></path></svg></button>';
+  if (open) {
+    h += '<div role="listbox" aria-multiselectable="true" data-keep="ms-' + key + '" style="position:absolute;z-index:45;top:calc(100% + 6px);left:0;min-width:100%;width:max-content;max-width:min(320px,calc(100vw - 32px));max-height:280px;overflow-y:auto;background:#FFFFFF;border:1px solid #E4E6E2;border-radius:12px;box-shadow:0 12px 32px rgba(30,42,33,0.18);padding:0 4px 4px">' +
+      '<div style="position:sticky;top:0;z-index:1;background:#FFFFFF;display:flex;justify-content:space-between;gap:16px;padding:10px 10px 8px;margin:0 -4px 4px;border-bottom:1px solid #EEF0EC">' +
+      '<button type="button" data-a="msAll" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#3B6D45;font-size:13px;font-weight:600">Pilih semua</button>' +
+      '<button type="button" data-a="msNone" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#5F6B63;font-size:13px;font-weight:600">Kosongkan</button></div>' +
+      opts.map(o => {
+        const on = sel.indexOf(o[0]) >= 0;
+        return '<button type="button" role="option" aria-selected="' + on + '" class="ms-row" data-a="msPick" data-k="' + key + '" data-v="' + esc(o[0]) + '" style="display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#1E2A21;font-size:14px;text-align:left">' +
+          '<span style="flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;' + (on ? 'background:#3B6D45' : 'border:1px solid #DADDD8;background:#FFFFFF') + '">' + (on ? CHECK : '') + '</span>' + esc(o[1]) + '</button>';
+      }).join('') + '</div>';
+  }
+  return h + '</div>';
 }
 
 function periodTitle(a, b) {
@@ -614,17 +669,14 @@ function tally(list) {
 }
 function fbFiltered() {
   const H = S.hr;
-  return H.fb.sessions.filter(x => (H.fbMeal === 'all' || x.meal === H.fbMeal) && (H.fbRate === 'all' || x.list.some(e => e.r === 'kurang')) &&
-    (H.fbTag === 'all' || x.list.some(e => e.tags.indexOf(H.fbTag) >= 0)));
+  return H.fb.sessions.filter(x => (!H.fbMeal.length || H.fbMeal.indexOf(x.meal) >= 0) &&
+    (!H.fbRate.length || x.list.some(e => H.fbRate.indexOf(e.r) >= 0)) &&
+    (!H.fbTag.length || x.list.some(e => e.tags.some(t => H.fbTag.indexOf(t) >= 0))));
 }
 
 function feedbackView() {
   const H = S.hr, F = H.fb;
-  const sel = (key, w, opts, cur) => '<select class="input lg" style="width:' + w + 'px" data-ch="' + key + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
-  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
-    sel('fbMeal', 200, [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']], H.fbMeal) +
-    sel('fbRate', 220, [['all', 'Semua penilaian'], ['kurang', 'Ada yang menilai Kurang']], H.fbRate) +
-    sel('fbTag', 200, [['all', 'Semua catatan']].concat(S.fbTags.slice(0, 6).map(t => [t, t])), H.fbTag) +
+  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('fbMeal') + msView('fbRate') + msView('fbTag') +
     '<div class="spacer"></div><button class="btn lg" data-a="exportFb">Ekspor CSV untuk dapur</button></div>';
   if (!F) return h + '<div class="tbl"><div class="empty">Memuat masukan…</div></div>';
   const ses = fbFiltered(), all = tally([].concat.apply([], ses.map(x => x.list)));
@@ -640,7 +692,7 @@ function feedbackView() {
       const t = tally(x.list), on = x.date + '-' + x.meal === selKey, pe = pct(t.c.enak, t.n), low = pe < 50;
       const bg = on ? '#F3F8F3' : low ? '#FFF8EC' : '#FFFFFF';
       return '<div class="tr click" data-a="fbSel" data-k="' + x.date + '-' + x.meal + '" style="grid-template-columns:' + FB_COLS + ';font-size:14px;background:' + bg + (on ? ';box-shadow:inset 3px 0 0 #3B6D45' : '') + '">' +
-        '<span style="white-space:nowrap;font-weight:600">' + fmt(x.date) + '</span><span style="color:#3F4A43">' + (x.meal === 'lunch' ? 'Siang' : 'Malam') + '</span><span class="r">' + t.n + '</span>' +
+        '<span style="white-space:nowrap;font-weight:600">' + fmt(x.date) + '</span>' + mealPill(x.meal) + '<span class="r">' + t.n + '</span>' +
         '<div style="display:flex;flex-direction:column;gap:5px;min-width:0"><div class="rbar"><div style="width:' + pct(t.c.enak, t.n) + '%;background:#3B6D45"></div><div style="width:' + pct(t.c.biasa, t.n) + '%;background:#B7BDB8"></div><div style="width:' + pct(t.c.kurang, t.n) + '%;background:#C97A1E"></div></div>' +
         '<span style="font-size:12px;font-weight:600;color:' + (low ? '#9A5A0C' : '#3F4A43') + '">' + pe + '% enak · ' + t.c.kurang + ' kurang</span></div>' +
         '<span class="ell" style="font-size:13px;color:' + (t.top ? (t.c.kurang ? '#9A5A0C' : '#1E2A21') : '#8A948D') + '">' + (t.top ? esc(t.top[0]) + ' (' + t.top[1] + ')' : '—') + '</span></div>';
@@ -649,7 +701,7 @@ function feedbackView() {
   if (S2) {
     const t = tally(S2.list), order = { kurang: 0, biasa: 1, enak: 2 };
     const cm = S2.list.filter(e => e.note || e.tags.length).sort((a, b) => order[a.r] - order[b.r]);
-    h += '<div class="cmt-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:16px">' + (S2.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(S2.date) + '</b>' +
+    h += '<div class="cmt-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:16px">' + swatch(S2.meal) + (S2.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(S2.date) + '</b>' +
       '<span class="muted" style="font-size:13px">' + t.n + ' respons · ' + t.c.enak + ' enak, ' + t.c.biasa + ' biasa, ' + t.c.kurang + ' kurang</span></div><span class="adm-pill">Nama hanya terlihat oleh admin</span></div>' +
       cm.map(e => '<div class="cmt"><span class="rp ' + e.r + '">' + RATE_LABEL[e.r] + '</span><div style="display:flex;flex-direction:column;gap:6px;min-width:0">' + (e.note ? '<span style="font-size:14px;line-height:1.45">' + esc(e.note) + '</span>' : '') +
         '<div style="display:flex;flex-wrap:wrap;gap:6px">' + e.tags.map(g => '<span class="tg">' + esc(g) + '</span>').join('') + '</div></div><span style="font-size:13px;color:#5F6B63;text-align:right">' + esc(e.who) + '</span></div>').join('') +
@@ -720,7 +772,7 @@ function ensureData() {
   const H = S.hr, C = S.cl;
   if (S.view === 'recap') {
     if (H.mode === 'day' && (!H.day || H.day.date !== H.date)) load('day:' + H.date, 'adminDay', { date: H.date }, d => { if (d.date === H.date) { H.day = d; S.settings = d.settings; } });
-    if (H.mode === 'month' && (!H.month || H.month.ym !== H.ym)) load('month:' + H.ym, 'adminMonth', { ym: H.ym }, d => { if (d.ym === H.ym) H.month = d; });
+    if (H.mode === 'month') selMonths().forEach(y => { if (!H.monthCache[y]) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
     if (H.mode === 'fb' && !H.fb) load('fb', 'adminFeedback', {}, d => { H.fb = d; });
   }
   if (S.view === 'closure') {
@@ -760,6 +812,7 @@ function storeLines(agg) {
   return out;
 }
 const collarName = c => c === 'blue' ? 'Blue collar' : 'White collar';
+const monthsSlug = yms => yms.length === 1 ? yms[0] : yms[0] + '_' + yms[yms.length - 1] + '_' + yms.length + 'bulan';
 const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi)';
 
 // ------------------------------------------------------------ actions
@@ -830,11 +883,13 @@ const A = {
   exportKitchen() {
     const H = S.hr;
     if (H.mode === 'month') {
-      const m = H.month; if (!m) return;
+      const yms = selMonths();
+      if (yms.some(y => !H.monthCache[y])) return flash('Data bulan masih dimuat');
+      const m = monthAgg(yms);
       const lines = ['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan'];
       m.days.forEach(x => { const b = x.lb || x.db; lines.push([x.date, x.l, x.d, x.l + x.d, b ? csvq('Tutup ' + (x.lb && x.db ? 'siang+malam' : x.lb ? 'siang' : 'malam') + ': ' + b.reason) : ''].join(',')); });
       lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
-      return download('dapur-porsi-' + H.ym + '.csv', lines, 'Ekspor untuk dapur');
+      return download('dapur-porsi-' + monthsSlug(yms) + '.csv', lines, 'Ekspor untuk dapur');
     }
     const d = H.day; if (!d) return;
     const s = daySums(d);
@@ -844,8 +899,10 @@ const A = {
   exportDetail() {
     const H = S.hr;
     if (H.mode === 'month') {
-      call('adminMonthDetail', { ym: H.ym }).then(rows => {
-        download('detail-karyawan-' + H.ym + '.csv', [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(','))), 'Detail karyawan diekspor');
+      const yms = selMonths();
+      Promise.all(yms.map(y => call('adminMonthDetail', { ym: y }))).then(parts => {
+        const rows = [].concat.apply([], parts);
+        download('detail-karyawan-' + monthsSlug(yms) + '.csv', [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(','))), 'Detail karyawan diekspor');
       }).catch(fail);
       return;
     }
@@ -859,6 +916,15 @@ const A = {
     download('masukan-makan-tanpa-nama.csv', lines, 'CSV diekspor tanpa nama');
   },
   fbSel(el) { S.hr.fbSel = el.dataset.k; render(); },
+  msToggle(el) { S.ms = S.ms === el.dataset.k ? null : el.dataset.k; render(); },
+  msPick(el) {
+    const c = MS[el.dataset.k], v = el.dataset.v, cur = c.get();
+    const next = cur.indexOf(v) >= 0 ? cur.filter(x => x !== v) : cur.concat(v);
+    c.set(c.opts().map(o => o[0]).filter(x => next.indexOf(x) >= 0));
+    render();
+  },
+  msAll(el) { const c = MS[el.dataset.k]; c.set(c.opts().map(o => o[0])); render(); },
+  msNone(el) { MS[el.dataset.k].set([]); render(); },
 
   // admin closures
   clMeal(el) { S.cl.meal = el.dataset.v; render(); },
@@ -871,7 +937,7 @@ const A = {
     try {
       C.data = await call('addClosure', { dates: ks, meal: C.meal, reason: C.reason });
       C.busy = false; C.reason = ''; C.impKey = '';
-      S.hr.day = S.hr.month = null;
+      S.hr.day = null; S.hr.monthCache = {};
       flash(fmtRange(ks) + ' ditutup' + (people != null ? ' · ' + nf(people) + ' karyawan diberi tahu' : ''));
       refreshEmployee();
     } catch (e) { C.busy = false; render(); fail(e); }
@@ -879,7 +945,7 @@ const A = {
   async reopen(el) {
     try {
       S.cl.data = await call('removeClosure', { g: el.dataset.g });
-      S.cl.impKey = ''; S.hr.day = S.hr.month = null;
+      S.cl.impKey = ''; S.hr.day = null; S.hr.monthCache = {};
       flash('Jadwal dibuka kembali');
       refreshEmployee();
     } catch (e) { fail(e); }
@@ -906,12 +972,8 @@ const CH = {
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
   hrStore(v) { S.hr.store = v; render(); },
-  hrYm(v) { S.hr.ym = v; render(); },
   cutD(v) { S.hr.cutD = Number(v); },
   cutT(v) { S.hr.cutT = v; },
-  fbMeal(v) { S.hr.fbMeal = v; render(); },
-  fbRate(v) { S.hr.fbRate = v; render(); },
-  fbTag(v) { S.hr.fbTag = v; render(); },
   clFrom(v) { S.cl.from = v; if (S.cl.to < v) S.cl.to = v; render(); },
   clTo(v) { S.cl.to = v; render(); },
   clSkip(v, el) { S.cl.skip = el.checked; render(); }
@@ -929,6 +991,7 @@ function paint(k, mk, on) {
 function init() {
   root = document.getElementById('app');
   root.addEventListener('click', e => {
+    if (S.ms && !e.target.closest('[data-ms-root]')) { S.ms = null; render(); }
     const c = chipOf(e.target);
     if (c) {
       if (S.suppress) { S.suppress = false; return; }
@@ -958,6 +1021,7 @@ function init() {
   window.addEventListener('resize', () => { if (S.pop) S.pop = null; if (S.user) render(); });
   window.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if (S.ms) { S.ms = null; return render(); }
     if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
   });
   window.addEventListener('beforeunload', e => { if (S.user && pendingChanges(nowJ()).length) { e.preventDefault(); e.returnValue = ''; } });
