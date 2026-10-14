@@ -1,4 +1,4 @@
-# Rebuild & Migration Prompt — Segari · Program Makan
+# Rebuild & Migration Prompt — Segari Program Makan
 
 > **How to use this file.** Paste the whole document into your AI coding tool (or hand it to a developer) as the brief for rebuilding the app on a new stack. It describes the **current production system** (Google Apps Script + Google Sheets, deployed 2026-10) completely enough to rebuild it with feature parity: data model and relations, business rules, API, every screen, the design system, CSV formats, and a migration plan with acceptance tests.
 >
@@ -8,7 +8,7 @@
 
 ## 0. The ask (for the AI / developer reading this)
 
-Rebuild "Segari · Program Makan" as a production web app on **[TARGET STACK — fill in, e.g. Next.js + PostgreSQL, Laravel + MySQL, …]**.
+Rebuild "Segari Program Makan" as a production web app on **[TARGET STACK — fill in, e.g. Next.js + PostgreSQL, Laravel + MySQL, …]**.
 
 - Keep **feature parity** with everything in sections 3–9.
 - Use a **relational database** with the schema in section 3 (adapt types to the chosen DB).

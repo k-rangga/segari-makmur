@@ -1,6 +1,6 @@
 # segari-makmur
 
-Segari · Program Makan — a Google Apps Script web app where employees register for lunch (Siang) and dinner (Malam) each month, and admins see kitchen portion totals, close the canteen on dates and review food feedback. Each portion is Rp 5.000, deducted from salary. UI is in Bahasa Indonesia.
+Segari Program Makan — a Google Apps Script web app where employees register for lunch (Siang) and dinner (Malam) each month, and admins see kitchen portion totals, close the canteen on dates and review food feedback. Each portion is Rp 5.000, deducted from salary. UI is in Bahasa Indonesia.
 
 ## Files
 

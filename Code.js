@@ -1,5 +1,5 @@
 /**
- * Segari · Program Makan — server side.
+ * Segari Program Makan — server side.
  * Data lives in the "Program Makmur Segari" spreadsheet; the web app runs as the
  * script owner, so employees log in with NIK + nama (no Google account needed).
  */
@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS = [
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index').evaluate()
-    .setTitle('Segari · Program Makan')
+    .setTitle('Segari Program Makan')
     .setFaviconUrl(FAVICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
