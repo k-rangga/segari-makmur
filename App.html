@@ -83,9 +83,15 @@ const S = {
 };
 
 // ------------------------------------------------------------ server
-function call(action, payload) {
+// `timeout` (ms) is for read-only calls: google.script.run never times out on its own.
+function call(action, payload, timeout) {
   return new Promise((resolve, reject) => {
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).api(action, S.token, payload || null);
+    let done = false;
+    const t = timeout ? setTimeout(() => { if (!done) { done = true; reject(new Error('Server lambat merespons. Coba lagi.')); } }, timeout) : null;
+    google.script.run
+      .withSuccessHandler(r => { if (!done) { done = true; clearTimeout(t); resolve(r); } })
+      .withFailureHandler(e => { if (!done) { done = true; clearTimeout(t); reject(e); } })
+      .api(action, S.token, payload || null);
   });
 }
 const errMsg = e => ((e && e.message) || String(e)).replace(/^Error:\s*/, '');
@@ -470,7 +476,7 @@ function pendingBarView(pend, now) {
   const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0;
   const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
   return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
-    voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div>';
+    '<div class="pend-act">' + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
 }
 
 function summaryView(ym, now, pend) {
@@ -1006,14 +1012,18 @@ const A = {
   discard() { S.sel = clone(S.saved); S.pop = null; S.voucher = null; S.vcode = ''; flash('Perubahan dibatalkan'); },
   async vApply() {
     const code = S.vcode.trim().toUpperCase();
+    if (S.vchecking) return;
     if (!code) return flash('Masukkan kode voucher dulu.');
     S.vchecking = true; render();
     try {
-      S.voucher = await call('checkVoucher', { code });
-      S.vcode = '';
-      flash('Voucher ' + S.voucher.code + ' · nilai ' + rp(S.voucher.value));
-    } catch (e) { if (isSession(e)) return fail(e); flash(errMsg(e)); }
-    S.vchecking = false; render();
+      const v = await call('checkVoucher', { code }, 20000);
+      S.voucher = v; S.vcode = '';
+      flash('Voucher ' + v.code + ' · nilai ' + rp(v.value));
+    } catch (e) {
+      if (isSession(e)) fail(e); else flash(errMsg(e));
+    } finally {
+      S.vchecking = false; render();       // never leave the button on "Memeriksa…"
+    }
   },
   vRemove() { S.voucher = null; render(); },
   // Optimistic: the calendar shows the choices as registered at once; the server call runs in the

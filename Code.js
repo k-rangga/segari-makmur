@@ -79,9 +79,9 @@ const ACTIONS = {
 
 function ensureSetup_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('setup_v1')) return;
+  if (props.getProperty('setup_v2')) return;           // bump when SHEETS gains a tab (v2: voucher)
   setupSheets();
-  props.setProperty('setup_v1', '1');
+  props.setProperty('setup_v2', '1');
 }
 
 /** Creates missing tabs and headers. Safe to run again from the editor. */
