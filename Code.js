@@ -213,11 +213,19 @@ function blockOf_(closures, k, meal) {
   return closures.find(c => c.date === k && (c.meal === 'both' || c.meal === meal)) || null;
 }
 
+/**
+ * Registrations are append-only: each save adds rows, and the newest row for a
+ * (date, NIK) wins. Older rows stay as history until compactRegistrations() runs.
+ */
 function regsAll_() {
-  return readTable_('pendaftaran').rows.filter(r => isKey_(r.tanggal)).map(r => ({
-    _row: r._row, date: r.tanggal, nik: String(r.nik).replace(/\s/g, ''),
-    l: Math.max(0, parseInt(r.siang, 10) || 0), d: Math.max(0, parseInt(r.malam, 10) || 0)
-  }));
+  const at = {}, out = [];
+  readTable_('pendaftaran').rows.forEach(r => {
+    if (!isKey_(r.tanggal)) return;
+    const v = { date: r.tanggal, nik: String(r.nik).replace(/\s/g, ''), l: Math.max(0, parseInt(r.siang, 10) || 0), d: Math.max(0, parseInt(r.malam, 10) || 0) };
+    const key = v.date + '|' + v.nik;
+    if (key in at) out[at[key]] = v; else { at[key] = out.length; out.push(v); }
+  });
+  return out;
 }
 
 function menus_(from, to) {
@@ -242,7 +250,6 @@ function stamp_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:m
 // Writes made through the app clear the affected keys; manual sheet edits show up
 // within CACHE_TTL seconds.
 const CACHE_TTL = 300;
-const REG_KEY = 'reg2:';
 const MEMO = {};
 function cache_() { return CacheService.getScriptCache(); }
 
@@ -266,51 +273,89 @@ function monthsBetween_(from, to) {
   return out;
 }
 
-/** Registrations (qty > 0) for the given months, served from cache when possible. */
-function regsMonths_(yms) {
+// Values larger than one cache entry (100 KB) are split into parts: KEY holds the part count,
+// KEY:0..n the text. Stored text always starts with '#' so an empty value is still a value.
+function bigGet_(key) {
+  const c = cache_(), n = c.get(key);
+  if (n == null) return null;
+  const keys = [];
+  for (let i = 0; i < Number(n); i++) keys.push(key + ':' + i);
+  const parts = c.getAll(keys);
+  let t = '';
+  for (let i = 0; i < keys.length; i++) { if (parts[keys[i]] == null) return null; t += parts[keys[i]]; }
+  return t;
+}
+function bigPut_(key, text) {
+  const n = Math.max(1, Math.ceil(text.length / 90000)), put = {};
+  for (let i = 0; i < n; i++) put[key + ':' + i] = text.slice(i * 90000, (i + 1) * 90000);
+  put[key] = String(n);
+  cache_().putAll(put, CACHE_TTL);
+}
+// A generation number per cache: writers bump it after writing the sheet, and a reader only
+// stores what it read if the generation did not change meanwhile (no stale overwrite).
+const bumpGen_ = key => cache_().put(key, Date.now() + '-' + Math.random(), 21600);
+
+function cachedBig_(key, build, fresh) {
+  if (!fresh && MEMO[key] !== undefined) return MEMO[key];
+  if (!fresh) { const t = bigGet_(key); if (t != null) return (MEMO[key] = JSON.parse(t.slice(1))); }
+  const gen = cache_().get('gen:' + key), val = build();
+  if (cache_().get('gen:' + key) === gen) bigPut_(key, '#' + JSON.stringify(val));
+  return (MEMO[key] = val);
+}
+function forgetBig_(key) { bumpGen_('gen:' + key); cache_().remove(key); delete MEMO[key]; }
+
+/** Rows for the given months from a per-month cache; months not cached are built from loadAll(). */
+function monthlyRows_(prefix, genKey, yms, loadAll, enc, dec) {
   const c = cache_(), out = [], need = [];
   yms = yms.filter((y, i) => yms.indexOf(y) === i);
-  const meta = c.getAll(yms.map(y => REG_KEY + y));
-  const keys = [];
-  yms.forEach(y => { const n = meta[REG_KEY + y]; if (n == null) need.push(y); else for (let i = 0; i < Number(n); i++) keys.push(REG_KEY + y + ':' + i); });
-  const chunks = keys.length ? c.getAll(keys) : {};
+  const meta = c.getAll(yms.map(y => prefix + y)), keys = [];
+  yms.forEach(y => { const n = meta[prefix + y]; if (n == null) need.push(y); else for (let i = 0; i < Number(n); i++) keys.push(prefix + y + ':' + i); });
+  const parts = keys.length ? c.getAll(keys) : {};
   yms.forEach(y => {
     if (need.indexOf(y) >= 0) return;
-    const parts = [];
-    for (let i = 0; i < Number(meta[REG_KEY + y]); i++) {
-      const v = chunks[REG_KEY + y + ':' + i];
-      if (v == null) { need.push(y); return; }
-      parts.push(v);
-    }
-    parts.join('').split('\n').forEach(line => {
-      if (!line) return;
-      const f = line.split('|');
-      out.push({ date: f[0], nik: f[1], l: Number(f[2]), d: Number(f[3]) });
-    });
+    let t = '';
+    for (let i = 0; i < Number(meta[prefix + y]); i++) { const v = parts[prefix + y + ':' + i]; if (v == null) { need.push(y); return; } t += v; }
+    t.slice(1).split('\n').forEach(l => { if (l) out.push(dec(l)); });
   });
   if (need.length) {
-    const gen = c.get('regGen'), byMonth = {};
-    need.forEach(y => { byMonth[y] = []; });
-    regsAll_().forEach(r => { const y = r.date.slice(0, 7); if (byMonth[y] && (r.l || r.d)) { byMonth[y].push(r); out.push(r); } });
-    if (c.get('regGen') === gen) {          // skip caching if a write happened meanwhile
-      const put = {};
-      need.forEach(y => {
-        const text = byMonth[y].map(r => r.date + '|' + r.nik + '|' + r.l + '|' + r.d).join('\n');
-        const n = Math.max(1, Math.ceil(text.length / 90000));
-        for (let i = 0; i < n; i++) put[REG_KEY + y + ':' + i] = text.slice(i * 90000, (i + 1) * 90000);
-        put[REG_KEY + y] = String(n);
-      });
-      c.putAll(put, CACHE_TTL);
-    }
+    const gen = c.get(genKey), by = {};
+    need.forEach(y => { by[y] = []; });
+    loadAll().forEach(r => { const y = r.date.slice(0, 7); if (by[y]) { by[y].push(r); out.push(r); } });
+    if (c.get(genKey) === gen) need.forEach(y => bigPut_(prefix + y, '#' + by[y].map(enc).join('\n')));
   }
   return out;
 }
 
-function forgetRegs_(dates) {
-  const yms = monthsBetween_(dates.reduce((a, b) => a < b ? a : b), dates.reduce((a, b) => a > b ? a : b));
-  cache_().put('regGen', String(Date.now()), 21600);
-  forget_(yms.map(y => REG_KEY + y), ['pendaftaran']);
+const REG_PREFIX = 'reg3:', FB_PREFIX = 'fb3:';
+const encReg_ = r => r.date + '|' + r.nik + '|' + r.l + '|' + r.d;
+const decReg_ = l => { const f = l.split('|'); return { date: f[0], nik: f.slice(1, -2).join('|'), l: Number(f[f.length - 2]), d: Number(f[f.length - 1]) }; };
+
+/** Registrations (qty > 0) for the given months. */
+function regsMonths_(yms) {
+  return monthlyRows_(REG_PREFIX, 'regGen', yms, () => regsAll_().filter(r => r.l || r.d), encReg_, decReg_);
 }
+
+/** After a save (inside the lock, after the sheet write): update cached months in place. */
+function patchRegs_(nik, changed) {
+  const byMonth = {};
+  Object.keys(changed).forEach(k => { (byMonth[k.slice(0, 7)] = byMonth[k.slice(0, 7)] || []).push(k); });
+  const texts = {};
+  Object.keys(byMonth).forEach(y => { texts[y] = bigGet_(REG_PREFIX + y); });
+  bumpGen_('regGen');
+  Object.keys(byMonth).forEach(y => {
+    if (texts[y] == null) return;                 // not cached: the next read builds it from the sheet
+    const ds = byMonth[y];
+    const rows = texts[y].slice(1).split('\n').filter(Boolean).map(decReg_).filter(r => !(r.nik === nik && ds.indexOf(r.date) >= 0));
+    ds.forEach(k => { const v = changed[k]; if (v.l || v.d) rows.push({ date: k, nik, l: v.l, d: v.d }); });
+    bigPut_(REG_PREFIX + y, '#' + rows.map(encReg_).join('\n'));
+  });
+  delete MEMO['t:pendaftaran'];
+}
+
+const encFb_ = r => JSON.stringify([r.date, r.meal, r.nik, r.r, r.tags, r.note]);
+const decFb_ = l => { const a = JSON.parse(l); return { date: a[0], meal: a[1], nik: a[2], r: a[3], tags: a[4], note: a[5] }; };
+/** Feedback rows for the given months. */
+function fbMonths_(yms) { return monthlyRows_(FB_PREFIX, 'fbGen', yms, feedbackAll_, encFb_, decFb_); }
 
 function groupByDate_(regs) {
   const m = {};
@@ -388,7 +433,7 @@ function bootstrap_(me) {
   const now = now_(), s = settings_(), rg = myRange_(now);
   const fb = {};
   const fbFrom = addDays_(now.key, -14);
-  feedbackAll_().forEach(f => {
+  fbMonths_(monthsBetween_(fbFrom, now.key)).forEach(f => {
     if (f.nik === me.nik && f.date >= fbFrom) fb[f.date + '-' + f.meal] = { r: f.r, tags: f.tags, note: f.note };
   });
   return {
@@ -416,43 +461,61 @@ function saveRegistrations_(me, changes, code) {
       d: blockOf_(closures, c.date, 'dinner') ? 0 : q(c.d)
     };
   });
-  const dates = Object.keys(clean), rg = myRange_(now), reg = {};
+  const dates = Object.keys(clean).sort(), rg = myRange_(now), reg = {};
   let used = null;
+  // Kept short for the Friday rush: the caller's current portions come from the month cache
+  // (only this NIK writes these rows, always through this lock), changed days are appended
+  // (no lookup), and the cache is updated in place so other users keep reading it warm.
   withLock_(() => {
-    const sh = sheet_('pendaftaran'), existing = {};
-    forget_([], ['pendaftaran']);
-    regsAll_().forEach(r => { if (r.nik === me.nik) existing[r.date] = r; });
+    const existing = {};
+    if (dates.length) regsMonths_(dates.map(k => k.slice(0, 7))).forEach(r => { if (r.nik === me.nik) existing[r.date] = r; });
     // Voucher: validated and priced before anything is written, so a bad code saves nothing.
-    const redeem = code ? priceVoucher_(code, dates.sort().map(k => ({ date: k, ex: existing[k], v: clean[k] }))) : null;
-    const ts = stamp_(), append = [], upd = [];
+    const redeem = code ? priceVoucher_(code, dates.map(k => ({ date: k, ex: existing[k], v: clean[k] }))) : null;
+    const ts = stamp_(), rows = [], changed = {};
     dates.forEach(k => {
-      const v = clean[k], ex = existing[k];
-      if (ex) {
-        if (ex.l !== v.l || ex.d !== v.d) upd.push({ row: ex._row, vals: [k, me.nik, v.l, v.d, ts] });
-      } else if (v.l || v.d) {
-        append.push([k, me.nik, v.l, v.d, ts]);
-      }
+      const v = clean[k], ex = existing[k] || { l: 0, d: 0 };
+      if (ex.l !== v.l || ex.d !== v.d) { rows.push([k, me.nik, v.l, v.d, ts]); changed[k] = v; }
     });
-    // Write contiguous rows in one call each instead of one call per row.
-    upd.sort((a, b) => a.row - b.row);
-    for (let i = 0; i < upd.length;) {
-      let j = i;
-      while (j + 1 < upd.length && upd[j + 1].row === upd[j].row + 1) j++;
-      sh.getRange(upd[i].row, 1, j - i + 1, 5).setValues(upd.slice(i, j + 1).map(u => u.vals));
-      i = j + 1;
+    if (rows.length) {
+      const sh = sheet_('pendaftaran');
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+      patchRegs_(me.nik, changed);
     }
-    if (append.length) sh.getRange(sh.getLastRow() + 1, 1, append.length, 5).setValues(append);
-    if (upd.length || append.length) forgetRegs_(dates);
     if (redeem) {
       sheet_('voucher').getRange(redeem.v._row, 4, 1, 4).setValues([[me.nik, ts, redeem.discount, splitText_(redeem.split)]]);
-      forget_(['vch1'], ['voucher']);
       used = { code: redeem.v.code, discount: redeem.discount, split: redeem.split, at: ts };
+      patchVoucher_(redeem.v.code, me.nik, used);
     }
-    // The caller's registrations after this save, built from what we already read.
-    Object.keys(existing).forEach(k => { const r = existing[k]; if (k >= rg.from && k <= rg.to && (r.l || r.d)) reg[k] = { l: r.l, d: r.d }; });
-    dates.forEach(k => { const v = clean[k]; if (k < rg.from || k > rg.to) return; if (v.l || v.d) reg[k] = v; else delete reg[k]; });
+  });
+  // The caller's registrations after this save (cache is already up to date).
+  regsMonths_(monthsBetween_(rg.from, rg.to)).forEach(r => {
+    if (r.nik === me.nik && r.date >= rg.from && r.date <= rg.to) reg[r.date] = { l: r.l, d: r.d };
   });
   return { reg, saved: dates.length, skipped, voucher: used };
+}
+
+/**
+ * Rewrites `pendaftaran` keeping only the newest non-zero row per date + NIK, sorted.
+ * Run from the editor, or add a weekly time-driven trigger for it (Triggers page).
+ */
+function compactRegistrations() {
+  return withLock_(() => {
+    delete MEMO['t:pendaftaran'];
+    const sh = sheet_('pendaftaran'), last = {};
+    readTable_('pendaftaran').rows.forEach(r => {
+      if (!isKey_(r.tanggal)) return;
+      const nik = String(r.nik).replace(/\s/g, '');
+      last[r.tanggal + '|' + nik] = [r.tanggal, nik, parseInt(r.siang, 10) || 0, parseInt(r.malam, 10) || 0, r.diperbarui || ''];
+    });
+    const keep = Object.keys(last).map(k => last[k]).filter(r => r[2] || r[3])
+      .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+    const before = sh.getLastRow() - 1;
+    if (before > 0) sh.getRange(2, 1, before, 5).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, 5).setValues(keep);
+    bumpGen_('regGen');
+    delete MEMO['t:pendaftaran'];
+    return { before: Math.max(0, before), after: keep.length };
+  });
 }
 
 function saveFeedback_(me, p) {
@@ -475,6 +538,8 @@ function saveFeedback_(me, p) {
     if (ex) sh.getRange(ex._row, 1, 1, row.length).setValues([row]);
     else sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
     forget_([], ['masukan']);
+    bumpGen_('fbGen');
+    cache_().remove(FB_PREFIX + p.date.slice(0, 7));
   });
   return { key: p.date + '-' + meal, fb: { r: p.r, tags, note } };
 }
@@ -496,12 +561,20 @@ function splitParse_(t) {
 }
 
 function vouchers_(fresh) {
-  return cached_('vch1', () => readTable_('voucher').rows.filter(r => r.kode).map(r => ({
+  return cachedBig_('vch2', () => readTable_('voucher').rows.filter(r => r.kode).map(r => ({
     _row: r._row, code: normCode_(r.kode), value: parseInt(String(r.nilai).replace(/\D/g, ''), 10) || 0,
     until: isKey_(r['berlaku sampai']) ? r['berlaku sampai'] : '', usedBy: String(r['dipakai oleh'] || '').replace(/\s/g, ''),
     usedAt: r['dipakai pada'] || '', discount: parseInt(r.potongan, 10) || 0, split: splitParse_(r.rincian),
     uploadedAt: r['diunggah pada'] || '', uploadedBy: r['diunggah oleh'] || ''
   })), fresh);
+}
+/** After a redemption (inside the lock, after the sheet write): update the cached list in place. */
+function patchVoucher_(code, nik, used) {
+  const list = MEMO['vch2'];                       // fresh list read by priceVoucher_ in this request
+  bumpGen_('gen:vch2');
+  if (!list) return cache_().remove('vch2');
+  list.forEach(v => { if (v.code === code) Object.assign(v, { usedBy: nik, usedAt: used.at, discount: used.discount, split: used.split }); });
+  bigPut_('vch2', '#' + JSON.stringify(list));
 }
 function voucherState_(v, today) { return v.usedBy ? 'used' : v.until && v.until < today ? 'expired' : 'available'; }
 
@@ -524,7 +597,7 @@ function checkVoucher_(code) {
 
 /** Prices a voucher against a submission ({date, ex, v} per changed date). Call inside the lock. */
 function priceVoucher_(code, rows) {
-  forget_(['vch1'], ['voucher']);
+  forgetBig_('vch2'); delete MEMO['t:voucher'];
   const v = findVoucher_(code, true), added = {};
   rows.forEach(r => {
     const ex = r.ex || { l: 0, d: 0 };
@@ -572,7 +645,7 @@ function uploadVouchers_(me, rows) {
   let added = 0;
   const skipped = [];
   withLock_(() => {
-    forget_(['vch1'], ['voucher']);
+    forgetBig_('vch2'); delete MEMO['t:voucher'];
     const have = {}, seen = {}, out = [], ts = stamp_();
     vouchers_(true).forEach(v => { have[v.code] = true; });
     rows.forEach(r => {
@@ -586,7 +659,7 @@ function uploadVouchers_(me, rows) {
     if (out.length) {
       const sh = sheet_('voucher');
       sh.getRange(sh.getLastRow() + 1, 1, out.length, out[0].length).setValues(out);
-      forget_(['vch1'], ['voucher']);
+      forgetBig_('vch2'); delete MEMO['t:voucher'];
     }
     added = out.length;
   });
@@ -595,12 +668,12 @@ function uploadVouchers_(me, rows) {
 
 function deleteVoucher_(code) {
   withLock_(() => {
-    forget_(['vch1'], ['voucher']);
+    forgetBig_('vch2'); delete MEMO['t:voucher'];
     const v = vouchers_(true).find(x => x.code === normCode_(code));
     if (!v) throw new Error('Kode voucher tidak ditemukan.');
     if (v.usedBy) throw new Error('Voucher yang sudah dipakai tidak bisa dihapus.');
     sheet_('voucher').deleteRow(v._row);
-    forget_(['vch1'], ['voucher']);
+    forgetBig_('vch2'); delete MEMO['t:voucher'];
   });
   return adminVouchers_();
 }
@@ -660,7 +733,7 @@ function adminMonthDetail_(ym) {
 function adminFeedback_() {
   const now = now_(), em = empMap_(employees_()), closures = closures_();
   const trendFrom = addDays_(addDays_(now.key, -dow_(now.key)), -49);
-  const all = feedbackAll_().filter(f => f.date >= trendFrom && f.date <= now.key && !blockOf_(closures, f.date, f.meal));
+  const all = fbMonths_(monthsBetween_(trendFrom, now.key)).filter(f => f.date >= trendFrom && f.date <= now.key && !blockOf_(closures, f.date, f.meal));
   const sesFrom = addDays_(now.key, -13), groups = {};
   all.forEach(f => {
     if (f.date < sesFrom) return;
