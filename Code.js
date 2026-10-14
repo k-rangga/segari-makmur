@@ -335,19 +335,20 @@ function secret_() {
 function sign_(s) { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(s, secret_())); }
 
 function login_(nik, name) {
-  nik = String(nik || '').replace(/\D/g, '');
+  nik = String(nik || '').replace(/\s/g, '');            // any characters; spaces ignored
   const nm = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
   if (!nik) throw new Error('NIK wajib diisi.');
-  const cache = CacheService.getScriptCache(), ck = 'fail:' + nik, fails = Number(cache.get(ck) || 0);
+  const cache = CacheService.getScriptCache(), ck = 'fail:' + nik.toUpperCase().slice(0, 200), fails = Number(cache.get(ck) || 0);
   if (fails >= 8) throw new Error('Terlalu banyak percobaan. Coba lagi 15 menit lagi.');
   const fail = msg => { cache.put(ck, String(fails + 1), 900); throw new Error(msg); };
-  const emp = employees_().find(e => e.nik === nik) || employees_(true).find(e => e.nik === nik);
+  const same = e => e.nik.toUpperCase() === nik.toUpperCase();
+  const emp = employees_().find(same) || employees_(true).find(same);
   if (!emp) fail('NIK tidak ditemukan. Hubungi People & HR.');
   if (!emp.active) throw new Error('NIK ini tidak aktif. Hubungi People & HR.');
   if (!nm) throw new Error('Nama wajib diisi.');
   if (emp.name.trim().toLowerCase().replace(/\s+/g, ' ') !== nm) fail('Nama tidak sesuai dengan NIK ini.');
   cache.remove(ck);
-  const p = nik + '|' + (Date.now() + SESSION_DAYS * 864e5);
+  const p = emp.nik + '|' + (Date.now() + SESSION_DAYS * 864e5);
   return { token: Utilities.base64EncodeWebSafe(p) + '.' + sign_(p), boot: bootstrap_(emp) };
 }
 
@@ -357,9 +358,9 @@ function auth_(token, needAdmin) {
   let p;
   try { p = Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString(); } catch (e) { throw new Error('SESI_HABIS'); }
   if (sign_(p) !== parts[1]) throw new Error('SESI_HABIS');
-  const bits = p.split('|');
-  if (Date.now() > Number(bits[1])) throw new Error('SESI_HABIS');
-  const find = list => list.find(e => e.nik === bits[0]);
+  const cut = p.lastIndexOf('|'), nik = p.slice(0, cut);      // the NIK itself may contain '|'
+  if (cut < 1 || Date.now() > Number(p.slice(cut + 1))) throw new Error('SESI_HABIS');
+  const find = list => list.find(e => e.nik === nik);
   const emp = find(employees_()) || find(employees_(true));
   if (!emp || !emp.active) throw new Error('SESI_HABIS');
   if (needAdmin && !emp.admin) throw new Error('Halaman ini khusus admin.');

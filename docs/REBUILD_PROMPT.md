@@ -252,7 +252,7 @@ All tabs have a header row; columns are matched **by header name, case-insensiti
 
 | Sheet tab | Columns | → Table | Transform |
 |---|---|---|---|
-| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif | `employee` (+ `store`) | `nik` = NIK with all whitespace removed (numbers → string, no decimals). `collar`: Kategori contains "blue" → blue; contains "white" → white; else Departemen matches /gudang\|operasional/i → blue; else white. `role`: Role matches /admin\|hr/i → admin. `active`: false only if Aktif ∈ {tidak, no, false, 0, n, nonaktif} (case-insensitive), blank = true. Blank Store → "Tanpa store". Skip rows without NIK or Nama. |
+| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif | `employee` (+ `store`) | `nik` = NIK with all whitespace removed, any characters allowed (numbers → string, no decimals). `collar`: Kategori contains "blue" → blue; contains "white" → white; else Departemen matches /gudang\|operasional/i → blue; else white. `role`: Role matches /admin\|hr/i → admin. `active`: false only if Aktif ∈ {tidak, no, false, 0, n, nonaktif} (case-insensitive), blank = true. Blank Store → "Tanpa store". Skip rows without NIK or Nama. |
 | `pendaftaran` | Tanggal, NIK, Siang, Malam, Diperbarui | `registration` | Tanggal may be text `YYYY-MM-DD` or a Sheets date → format in Asia/Jakarta. Siang/Malam → int ≥ 0 (blank/invalid = 0). Diperbarui `yyyy-MM-dd HH:mm:ss` Jakarta → `updated_at`. If duplicates exist for (date, nik), keep the last row. |
 | `tutup` | Grup, Tanggal, Waktu, Alasan, Dibuat oleh, Dibuat pada | `closure_group` + `closure_day` | Group rows by Grup (blank Grup → its own group per date). Waktu: contains both "siang" and "malam" / "keduanya" / "both" → both; "siang"/"lunch" → lunch; "malam"/"dinner" → dinner; anything else → both. Dibuat oleh is a **name** → look up the employee nik by name (null if not found). |
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | `feedback` | Waktu "Malam"/dinner → dinner, else lunch. Nilai lower-cased; drop rows not in {enak, biasa, kurang}. Tag split on `;` and trimmed. |
@@ -315,7 +315,7 @@ Accepted only if **all** hold:
 - **Anonymity**: kitchen-facing CSV contains no names/NIKs. Admin UI shows "Name · Department" per comment with the label "Nama hanya terlihat oleh admin".
 
 ### 4.8 Login
-- Input: NIK + full name. NIK normalized by removing whitespace (the current code strips non-digits — keep digits-only unless real NIKs contain letters). Name compared **case-insensitively with whitespace collapsed** ("  rina   WULANDARI " matches "Rina Wulandari").
+- Input: NIK + full name. NIK normalized by removing whitespace; any characters allowed, no length limit; matched case-insensitively. Name compared **case-insensitively with whitespace collapsed** ("  rina   WULANDARI " matches "Rina Wulandari").
 - Error messages (exact):
   - empty NIK → `NIK wajib diisi.`
   - unknown NIK → `NIK tidak ditemukan. Hubungi People & HR.` (counts as a failed attempt)
@@ -393,7 +393,7 @@ Persisted per-browser preferences (localStorage, all optional): `pm-token`, `pm-
 ### 6.1 Login (full-screen)
 - Two panels in a responsive grid (`repeat(auto-fit, minmax(min(100%,420px),1fr))`).
 - Left (dark green): brand "**S**egari" (S in orange), "Program Makan", description "Daftar makan siang dan makan malam setiap bulan. Pilih hari, tentukan jumlah porsi, dan pantau makananmu. Setiap porsi Rp 5.000 dan dipotong dari gaji.", footer "Butuh bantuan? Hubungi admin program makan."
-- Right: "Masuk" / "Masukkan NIK dan nama lengkap sesuai data HR."; fields "NIK (Nomor Induk Karyawan)" (numeric keyboard, max 16, placeholder "cth. 20210001") and "Nama lengkap" (placeholder "cth. Rina Wulandari"); error box; submit "Masuk" ("Memeriksa…" while busy). The field the error refers to gets a 1.5px warning border (error text starting with "NIK" → NIK field, "Nama" → name field).
+- Right: "Masuk" / "Masukkan NIK dan nama lengkap sesuai data HR."; fields "NIK (Nomor Induk Karyawan)" (any characters, no length limit, placeholder "cth. 20210001") and "Nama lengkap" (placeholder "cth. Rina Wulandari"); error box; submit "Masuk" ("Memeriksa…" while busy). The field the error refers to gets a 1.5px warning border (error text starting with "NIK" → NIK field, "Nama" → name field).
 - On success toast "Selamat datang, {firstName}".
 
 ### 6.2 Sidebar

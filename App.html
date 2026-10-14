@@ -185,7 +185,7 @@ function loginView() {
     '<span class="login-foot">Butuh bantuan? Hubungi admin program makan.</span></div>' +
     '<div class="login-r"><form data-submit="login" novalidate>' +
     '<div class="field"><h2>Masuk</h2><span class="muted">Masukkan NIK dan nama lengkap sesuai data HR.</span></div>' +
-    '<label class="field"><span class="lbl">NIK (Nomor Induk Karyawan)</span><input class="linput nik' + (nikErr ? ' err' : '') + '" data-f="nik" data-in="nik" value="' + esc(S.nik) + '" inputmode="numeric" maxlength="16" placeholder="cth. 20210001" autocomplete="username"></label>' +
+    '<label class="field"><span class="lbl">NIK (Nomor Induk Karyawan)</span><input class="linput nik' + (nikErr ? ' err' : '') + '" data-f="nik" data-in="nik" value="' + esc(S.nik) + '" placeholder="cth. 20210001" autocomplete="username" autocapitalize="characters" spellcheck="false"></label>' +
     '<label class="field"><span class="lbl">Nama lengkap</span><input class="linput' + (nmErr ? ' err' : '') + '" data-f="nm" data-in="nm" value="' + esc(S.nm) + '" placeholder="cth. Rina Wulandari" autocomplete="name"></label>' +
     (e ? '<div class="login-err">' + esc(e) + '</div>' : '') +
     '<button type="submit" class="login-submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? 'Memeriksa…' : 'Masuk') + '</button>' +
