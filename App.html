@@ -8,15 +8,15 @@ const FD = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const FMN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const MEALS = [['l', 'Siang', 'lunch'], ['d', 'Malam', 'dinner']];
-const RATES = [['enak', 'Enak', '#3B6D45'], ['biasa', 'Biasa', '#3F4A43'], ['kurang', 'Kurang', '#9A5A0C']];
+const RATES = [['enak', 'Enak', '#1f5f4a'], ['biasa', 'Biasa', '#4a524d'], ['kurang', 'Kurang', '#8a5a0b']];
 const RATE_LABEL = { enak: 'Enak', biasa: 'Biasa', kurang: 'Kurang' };
 const MEAL_NAME = { both: 'Siang & malam', lunch: 'Makan siang', dinner: 'Makan malam' };
 const REASONS = ['Libur nasional', 'Cuti bersama', 'Perawatan dapur', 'Acara kantor'];
 const LUNCH_FB_FROM = 12 * 60, DINNER_FB_FROM = 18 * 60 + 30;
 // Meal colors: accent / tint / text on tint (all text pairs >= 4.5:1).
-const MC = { lunch: { a: '#3B6D45', t: '#E3F1E5', x: '#2B5234' }, dinner: { a: '#F39A1E', t: '#FDEBD0', x: '#8A4F00' } };
+const MC = { lunch: { a: '#1f5f4a', t: '#e4f3ea', x: '#194e3d' }, dinner: { a: '#f7971f', t: '#fdf3e1', x: '#8a5a0b' } };
 const swatch = meal => '<i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + MC[meal].a + ';margin-right:6px;vertical-align:1px"></i>';
-const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:4px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
+const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
 const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
 const DETAIL_COLS = '96px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
 const MONTH_COLS = '110px minmax(0,1fr) 80px 80px minmax(170px,1.3fr)';
@@ -49,6 +49,11 @@ const ls = {
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } }
 };
 
+// Segari logo from the design system (logo/segari-logo.svg, logo/segari-mark.svg). Never recolour or rebuild from text.
+const LOGO_PATHS = '<path d="M130.67 302.76C86.1004 256.89 135.21 152.35 218.04 142.26C238.28 139.8 259.89 139.94 279.16 145.26C279.6 143.53 279.34 141.67 278.32 140.12C261.25 114.2 231.22 100.5 191.5 100.5C188.4 100.5 185.22 100.58 181.99 100.75C182.5 99.99 182.98 99.22 183.44 98.44C186.07 93.89 188.42 85.24 187.7 76.13C187.52 73.98 187.25 72.01 186.95 69.83C186.3 65.1 185.63 60.21 185.98 52.94C186.37 45.04 188.41 37.87 191.56 33.26C192.52 31.86 192.89 29.99 192.55 28.24C191.96 25.2 189.29 23 186.2 23C186 23 185.8 23.01 185.64 23.03C184.09 23.16 147.35 26.71 127 61.69C124.34 66.29 122.48 71.86 121.57 77.82C110.54 69.33 96.0804 64.05 83.1604 64.05L82.4704 64.06C29.6804 64.89 2.20039 104.44 1.06039 106.12C0.120394 107.49 -0.209599 109.29 0.130401 111.04C0.450401 112.7 1.5104 114.26 2.9704 115.24C4.0404 115.95 5.28039 116.33 6.56039 116.33C6.74039 116.33 6.93041 116.32 7.15041 116.3C8.01041 116.22 8.9204 116.18 9.8604 116.18C17.3204 116.18 26.1804 118.54 34.8104 122.84C43.5704 127.2 48.8604 131.19 53.9804 135.05C56.2004 136.72 58.4904 138.45 60.9604 140.11C69.5404 145.87 79.6504 148.76 86.2704 149.22C49.3004 194.74 42.8604 256.26 72.5904 289.27C105.86 326.2 144.77 346.72 188.19 350.26C188.37 350.28 188.56 350.28 188.74 350.28C191.39 350.28 193.69 348.61 194.67 346.2C170.61 336.95 149.35 321.99 130.67 302.76Z" fill="#FFFFFF"/><path d="M132.6 64.94C128.07 72.77 126.27 84.27 128.14 94.14C119.34 80.06 98.7402 70.28 82.5702 70.54C32.5702 71.32 6.41016 109.77 6.41016 109.77C6.41016 109.77 6.46015 109.8 6.56015 109.87C15.1701 109.09 26.4802 111.48 37.7002 117.06C50.9802 123.67 56.9302 129.62 64.5702 134.75C73.2902 140.6 83.3502 142.91 88.2902 142.83C104.43 142.58 122.04 134.42 129.18 121.12C111.53 107.33 76.2302 96.07 59.3802 96.33L59.3701 95.49C56.5301 95.53 103.22 88.88 138.55 119.58C141.17 121.86 151.96 132.83 151.96 132.83C150.63 126.12 147.51 119.9 143.35 114.5C139.34 83.86 156.82 59.37 157.42 58.92L158.01 59.23C151.64 70.16 146.06 97.39 148.61 113.97C159.92 114.16 171.71 105.64 177.83 95.2C179.69 91.99 181.86 84.53 181.24 76.69C180.65 69.8 178.97 63.75 179.51 52.63C179.97 43.26 182.54 34.99 186.22 29.61C186.2 29.53 186.19 29.48 186.19 29.48C186.19 29.48 151.47 32.5 132.6 64.94Z" fill="#3E6342"/><path d="M292.81 221.62L284.15 215.6C279.97 212.73 266.42 205.24 254.4 205.24C250.77 205.24 246.51 205.74 245.64 207.96C249.34 212.15 265.05 218.83 275.63 223.33C281.94 226.01 287.73 229.07 292.98 232.43C293.02 228.85 292.97 225.24 292.81 221.62Z" fill="#FA980F"/><path d="M167.01 329.5L158.82 323.04L193.35 265.39L204.94 275.18C213.03 281.98 230.14 292.8 241.51 292.8C255.09 292.8 255.09 289.83 255.09 287.66C253.89 284.48 241.45 278.69 233.23 274.85C229.28 273.01 225.12 271.07 220.88 268.95C194.23 255.76 178.91 234.4 178.91 210.37C178.91 167.86 216.59 141.55 251.51 141.55C259.16 141.55 266.32 142.39 272.92 143.68C249.75 108.5 205.51 103.55 166.38 108.68C82.0203 119.75 32.0203 234.57 77.4003 284.95C107.59 318.46 144.39 340.21 188.74 343.82C175.32 337.03 167.62 330.07 167.01 329.5Z" fill="#FA980F"/><path d="M270.83 235.25C249.96 226.37 232.63 219.04 232.63 208.82C232.63 198.83 240.18 192.38 254.39 192.38C273.27 192.38 291.48 205.04 291.48 205.04L308.36 171.72C308.36 171.72 284.81 154.4 251.5 154.4C221.96 154.4 191.75 176.16 191.75 210.37C191.75 229.47 204.63 246.57 226.62 257.46C248.39 268.35 267.93 274.34 267.93 287.67C267.93 304.77 250.61 305.66 241.5 305.66C221.06 305.66 196.63 285 196.63 285L175.76 320.09C175.76 320.09 201.74 344.3 244.61 344.3C280.37 344.3 313.69 328.97 313.69 285.22C313.7 261.24 291.26 243.91 270.83 235.25Z" fill="#3E6342"/><path d="M387.66 223.7C353.23 223.7 325.03 250.8 325.03 284.11C325.03 317.2 353.23 344.3 387.66 344.3C412.97 344.3 433.85 336.08 446.74 314.54L418.31 300.33C408.76 310.55 403.21 312.99 390.55 312.99C380.56 312.99 365.89 306.99 365.89 289.45H448.51C448.74 288.12 448.74 285.67 448.74 284.12C448.74 244.14 422.3 223.7 387.66 223.7ZM367 267.68C367.67 257.24 375.22 249.25 388.76 249.25C400.32 249.25 408.53 255.69 410.31 267.68H367Z" fill="#3E6342"/><path d="M552.91 237.25H552.24C542.92 228.59 530.7 223.7 515.59 223.7C482.28 223.7 458.96 250.8 458.96 284.11C458.96 317.43 482.28 344.3 515.59 344.3C531.14 344.3 544.47 342.08 552.91 332.75V341.19C552.91 361.4 536.03 367.84 525.14 367.84C508.04 367.84 498.49 360.07 494.27 353.18L462.07 368.95C474.06 396.71 501.38 402.04 525.15 402.04C564.02 402.04 592.22 382.27 592.22 344.07V227.03H552.91V237.25ZM527.37 310.77C511.37 310.77 500.72 299.66 500.72 284.12C500.72 268.35 512.49 257.24 527.37 257.24C542.03 257.24 553.8 268.35 553.8 284.12C553.79 299.66 542.69 310.77 527.37 310.77Z" fill="#3E6342"/><path d="M704.61 237.92C695.28 228.81 682.62 223.71 667.29 223.71C633.98 223.71 610.66 250.81 610.66 284.12C610.66 317.44 633.98 344.31 667.29 344.31C682.84 344.31 696.17 337.42 704.61 328.1H705.05V340.98H743.92V227.03H704.61V237.92ZM679.06 310.77C663.06 310.77 652.41 299.66 652.41 284.12C652.41 268.35 664.18 257.24 679.06 257.24C693.72 257.24 705.49 268.35 705.49 284.12C705.49 299.66 694.39 310.77 679.06 310.77Z" fill="#3E6342"/><path d="M810.32 243.47H809.88V227.03H770.57V340.97H809.88V281C809.88 278.11 812.77 257.9 833.2 257.9C846.31 257.9 853.64 264.12 853.64 264.12L870.07 230.8C870.07 230.8 859.85 223.69 845.2 223.69C822.76 223.7 810.32 243.47 810.32 243.47Z" fill="#3E6342"/><path d="M920.48 227.03H881.17V340.97H920.48V227.03Z" fill="#3E6342"/><path d="M912.61 199.05C907.95 201.04 903.28 207.2 904.4 212.08C904.14 212.51 903.95 212.98 903.74 213.44C903.64 211.89 903.41 210.35 902.94 208.91C905.82 202.89 901.55 193.52 896.07 189.57C882.07 179.47 866.9 184.72 866.9 184.72C866.9 184.72 866.91 184.74 866.92 184.78C869.47 186.34 872.1 189.33 874.05 193.19C876.36 197.76 876.78 200.63 877.84 203.63C879.05 207.05 881.36 209.76 882.74 210.76C887.26 214.02 893.82 215.39 898.54 213.19C896.5 205.73 889.05 195.33 884.33 191.93L884.5 191.69C883.6 191.04 901.88 201.01 902.19 221.07L902.43 221.13C902.55 220.89 902.59 220.62 902.69 220.37C902.73 220.62 902.72 220.87 902.77 221.11H902.95C906.48 206.48 921.49 202.19 920.73 202.52L920.82 202.72C916.81 204.44 909.65 210.82 906.93 215.94C910.02 218.33 915.05 218.4 918.89 216.76C920.07 216.26 922.2 214.65 923.65 212.35C924.92 210.33 925.7 208.3 928.14 205.33C930.2 202.83 932.63 201.07 934.75 200.35C934.77 200.32 934.77 200.31 934.77 200.31C934.77 200.31 924.52 193.96 912.61 199.05Z" fill="#3E6342"/>';
+const MARK_PATHS = '<path d="M95.38 26.8C91.95 32.72 90.6 41.41 92.01 48.87C85.36 38.23 69.78 30.84 57.57 31.03C19.78 31.62 0 60.69 0 60.69C0 60.69 0.0400006 60.72 0.110001 60.76C6.62 60.17 15.17 61.97 23.65 66.2C33.68 71.2 38.18 75.69 43.96 79.57C50.55 83.99 58.16 85.74 61.89 85.68C74.09 85.49 87.4 79.32 92.8 69.27C79.46 58.85 52.78 50.33 40.04 50.53V49.89C37.89 49.92 73.18 44.89 99.89 68.1C101.87 69.82 110.03 78.11 110.03 78.11C109.02 73.04 106.67 68.34 103.53 64.25C100.5 41.09 113.71 22.58 114.17 22.24L114.61 22.48C109.8 30.74 105.58 51.32 107.5 63.86C116.05 64.01 124.96 57.57 129.59 49.67C131 47.24 132.63 41.61 132.17 35.68C131.72 30.47 130.45 25.9 130.86 17.49C131.21 10.41 133.15 4.15 135.93 0.09L135.91 0C135.91 0 109.66 2.28 95.4 26.8H95.38Z" fill="#3E6342"/><path d="M209.78 104.76C227.65 166.48 212.33 240.84 142.58 237.93C106.91 236.44 77.55 219.63 53.65 193.1C19.34 155.02 57.14 68.23 120.9 59.86C156.3 55.21 197.25 61.47 209.78 104.76Z" fill="#FA980F"/>';
+const logoFull = h => '<svg viewBox="0 20 940 386" height="' + h + '" style="display:block;height:' + h + 'px;width:auto" role="img" aria-label="Segari" xmlns="http://www.w3.org/2000/svg">' + LOGO_PATHS + '</svg>';
+const logoMark = h => '<svg viewBox="0 0 217 239" height="' + h + '" style="display:block;height:' + h + 'px;width:auto" role="img" aria-label="Segari" xmlns="http://www.w3.org/2000/svg">' + MARK_PATHS + '</svg>';
 const svg = (size, d, sw) => '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" style="flex:none">' + d + '</svg>';
 const ICON = {
   cal: s => svg(s, '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path>'),
@@ -162,7 +167,7 @@ function toastView() {
 // ------------------------------------------------------------ login
 function loginView() {
   const e = S.loginErr, nikErr = /^NIK/.test(e), nmErr = /^Nama/.test(e);
-  return '<div class="login"><div class="login-l"><span class="login-brand"><b>S</b>egari</span>' +
+  return '<div class="login"><div class="login-l"><span class="login-brand">' + logoFull(56) + '</span>' +
     '<div class="login-mid"><h1>Program Makan</h1><p>Daftar makan siang dan makan malam setiap bulan. Pilih hari, tentukan jumlah porsi, dan pantau makananmu. Setiap porsi Rp 5.000 dan dipotong dari gaji.</p></div>' +
     '<span class="login-foot">Butuh bantuan? Hubungi admin program makan.</span></div>' +
     '<div class="login-r"><form data-submit="login" novalidate>' +
@@ -218,13 +223,13 @@ function sideView() {
   const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx]] : []);
   const role = (u.admin ? 'Admin' : (u.dept || 'Karyawan')) + ' · NIK ' + u.nik;
   if (mini) {
-    return '<aside class="side mini"><div class="logo">S</div><nav class="nav">' +
+    return '<aside class="side mini"><div class="logo">' + logoMark(40) + '</div><nav class="nav">' +
       items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '" title="' + i[1] + '" aria-label="' + i[1] + '">' + i[2](22) + '</button>').join('') +
       '</nav><div class="side-foot"><div class="avatar" title="' + esc(u.name) + '">' + ini + '</div>' +
       '<button class="logout" data-a="logout" title="Keluar" aria-label="Keluar" style="padding:0;width:44px;justify-content:center">' + ICON.out(18) + '</button>' +
       (window.innerWidth < 760 ? '' : '<button class="collapse" data-a="toggleNav" title="Tampilkan menu samping">' + ICON.right(18) + '</button>') + '</div></aside>';
   }
-  return '<aside class="side"><div class="brand"><div class="logo">S</div><div class="brand-t"><b>Segari</b><span>Program Makan</span></div></div>' +
+  return '<aside class="side"><div class="brand">' + logoFull(46) + '<span class="brand-name">Program Makan</span></div>' +
     '<nav class="nav">' + items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '">' + i[2](20) + i[1] + '</button>').join('') + '</nav>' +
     '<div class="side-foot"><div class="user"><div class="avatar">' + ini + '</div><div class="user-t"><b class="ell">' + esc(u.name) + '</b><span class="ell">' + esc(role) + '</span></div></div>' +
     '<div class="foot-row"><button class="logout" data-a="logout">' + ICON.out(18) + 'Keluar</button>' +
@@ -338,7 +343,7 @@ function calToolbar() {
   const opts = [['wk-lunch', 'Hari kerja · Makan siang'], ['wk-both', 'Hari kerja · Siang + malam'], ['wk-dinner', 'Hari kerja · Makan malam'], ['all-lunch', 'Setiap hari · Makan siang'], ['all-both', 'Setiap hari · Siang + malam'], ['clear', 'Kosongkan bulan ini']];
   return '<div class="toolbar"><select class="input" style="min-width:240px" data-ch="quick"><option value="">Isi cepat…</option>' +
     opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select><div class="spacer"></div>' +
-    '<div class="legend"><span><i class="sw" style="background:#3B6D45"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #3B6D45;background:#EEF6EF"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #DADDD8;background:#F7F8F6"></i>Belum dipilih</span>' +
+    '<div class="legend"><span><i class="sw" style="background:#1f5f4a"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #1f5f4a;background:#eef5f1"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #d5d9d4;background:#fafbf9"></i>Belum dipilih</span>' +
     ['lunch', 'dinner'].map(m => '<span style="height:24px;padding:0 8px;border-radius:999px;background:' + MC[m].t + ';color:' + MC[m].x + ';font-weight:600"><i class="sw" style="width:10px;height:10px;border-radius:3px;background:' + MC[m].a + '"></i>' + (m === 'lunch' ? 'Siang' : 'Malam') + '</span>').join('') + '</div>' +
     '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button></div>';
 }
@@ -346,8 +351,8 @@ function calToolbar() {
 function calendarView(ym, now) {
   const today = now.key, first = ym + '-01', last = monthEnd(ym), nd = S.hideWknd ? 5 : 7;
   const cols = S.hideWknd ? '130px repeat(5,minmax(110px,1fr))' : '130px repeat(7,minmax(96px,1fr))';
-  let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 700 : 860) + 'px"><span style="border-bottom:1px solid #E4E6E2"></span>';
-  h += DAYS.slice(0, nd).map((d, i) => '<span class="cal-dh" style="color:' + (i >= 5 ? '#5F6B63' : '#1E2A21') + '">' + d + '</span>').join('');
+  let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 700 : 860) + 'px"><span style="border-bottom:1px solid #e3e6e1"></span>';
+  h += DAYS.slice(0, nd).map((d, i) => '<span class="cal-dh" style="color:' + (i >= 5 ? '#5d6560' : '#1d211f') + '">' + d + '</span>').join('');
   for (let ws = addDays(first, -dow(first)); ws <= last; ws = addDays(ws, 7)) {
     const we = addDays(ws, 6), days = daysOf(ws, we), lk = isLocked(ws, now), c = cutoffOf(ws);
     const label = ws <= today && today <= we ? 'Minggu ini · terkunci' : we < today ? 'Lewat' : lk ? 'Terkunci' : c.key === today ? 'Batas hari ini ' + S.settings.cutTime : 'Sampai ' + DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)];
@@ -359,7 +364,7 @@ function calendarView(ym, now) {
       if (!blockOf(S.closures, k, 'dinner')) n += v.d || 0;
     });
     const editable = !lk && days.some(k => k.slice(0, 7) === ym);
-    h += '<div class="cal-wk"><span class="lb" style="color:' + (we < today ? '#5F6B63' : '#1E2A21') + '">' + label + '</span>' +
+    h += '<div class="cal-wk"><span class="lb" style="color:' + (we < today ? '#5d6560' : '#1d211f') + '">' + label + '</span>' +
       (we >= today ? '<div class="sum"><span>' + n + ' porsi</span><b>' + rp(n * S.price) + '</b></div>' : '') +
       (editable ? '<div class="lk"><button class="link sm" data-a="fillWeek" data-ws="' + ws + '">Isi minggu</button><button class="link sm muted" style="font-weight:400" data-a="clearWeek" data-ws="' + ws + '">Kosongkan</button></div>' : '') + '</div>';
     h += days.slice(0, nd).map(k => cellView(k, ym, now)).join('');
@@ -373,10 +378,10 @@ function cellView(k, ym, now) {
   const past = k < now.key, lk = isLocked(k, now), isT = k === now.key;
   const lb = blockOf(S.closures, k, 'lunch'), db = blockOf(S.closures, k, 'dinner'), full = lb && db;
   const cls = (past ? ' dim past' : full ? ' closed' : '') + (isT ? ' today' : '');
-  let tag = '', tagFg = '#9A5A0C';
+  let tag = '', tagFg = '#8a5a0b';
   if (full) tag = /libur|cuti/i.test(lb.reason) ? 'Libur' : 'Tutup';
   else if (lb || db) tag = lb ? 'Siang tutup' : 'Malam tutup';
-  else if (lk && !past) { tag = 'Terkunci'; tagFg = '#5F6B63'; }
+  else if (lk && !past) { tag = 'Terkunci'; tagFg = '#5d6560'; }
   const chips = MEALS.map(([mk, name, meal]) => {
     const blk = meal === 'lunch' ? lb : db;
     if (blk) return '<button class="mc cls" disabled title="' + esc(name + ' · ' + blk.reason) + '"><span>' + name + '</span></button>';
@@ -440,7 +445,7 @@ function fbModalView() {
   return '<div class="backdrop" data-a="closeFb"></div><div class="modal" role="dialog" aria-modal="true">' +
     '<div class="modal-h"><span>' + (f.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(f.k) + '</span><b>' + esc(menu || (f.meal === 'lunch' ? 'Makan siang' : 'Makan malam')) + '</b></div>' +
     '<div class="sec"><b>Bagaimana rasanya?</b><div class="rates">' + RATES.map(r => '<button class="rate' + (f.r === r[0] ? ' ' + r[0] : '') + '" data-a="fbRate" data-r="' + r[0] + '">' + r[1] + '</button>').join('') + '</div></div>' +
-    '<div class="sec"><b>Ada catatan? <span style="font-weight:400;color:#5F6B63">(opsional)</span></b><div class="chips">' +
+    '<div class="sec"><b>Ada catatan? <span style="font-weight:400;color:#5d6560">(opsional)</span></b><div class="chips">' +
     S.fbTags.map(t => '<button class="chip' + (f.tags.indexOf(t) >= 0 ? ' on' : '') + '" data-a="fbTag" data-t="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div>' +
     '<textarea class="input" rows="3" maxlength="500" data-f="fbNote" data-in="fbNote" placeholder="Tulis masukan untuk tim dapur">' + esc(f.note) + '</textarea></div>' +
     '<span class="note">Tim dapur melihat masukan tanpa nama. Bisa diubah sampai ' + fmt(addDays(f.k, S.fbEditDays)) + '.</span>' +
@@ -557,8 +562,8 @@ function dayView() {
     '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
     '<div style="overflow-x:auto"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
     sortCols.map(c => { const on = H.sort.k === c[0]; return '<button class="sort' + (on ? ' on' : '') + (c[2] ? ' num' : '') + '" data-a="sort" data-k="' + c[0] + '">' + c[1] + '<span style="font-size:12px">' + (on ? (H.sort.dir > 0 ? '▲' : '▼') : '') + '</span></button>'; }).join('') + '</div>' +
-    '<div class="tbody" data-keep="detail">' + rows.map(r => '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#3F4A43">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#3F4A43">' + esc(r.dept) + '</span><span class="ell" style="color:#3F4A43">' + esc(r.store) + '</span>' +
-      '<span class="r" style="color:' + (r.l ? '#1E2A21' : '#8A948D') + '">' + (r.l || '—') + '</span><span class="r" style="color:' + (r.d ? '#1E2A21' : '#8A948D') + '">' + (r.d || '—') + '</span></div>').join('') +
+    '<div class="tbody" data-keep="detail">' + rows.map(r => '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#4a524d">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span><span class="ell" style="color:#4a524d">' + esc(r.store) + '</span>' +
+      '<span class="r" style="color:' + (r.l ? '#1d211f' : '#c5cbc6') + '">' + (r.l || '–') + '</span><span class="r" style="color:' + (r.d ? '#1d211f' : '#c5cbc6') + '">' + (r.d || '–') + '</span></div>').join('') +
     (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
     '</div></div></div></div>';
   return h;
@@ -613,10 +618,10 @@ function monthView() {
     m.days.map(x => {
       const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key;
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
-      const numFg = full ? '#8A948D' : '#1E2A21';
-      return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#FAFAF8' : '') + '">' +
-        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5F6B63' : '#1E2A21') + '">' + (multi ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
-        '<span class="r" style="color:' + (x.lb ? '#8A948D' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#8A948D' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
+      const numFg = full ? '#9aa39d' : '#1d211f';
+      return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#fafbf9' : '') + '">' +
+        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (multi ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
+        '<span class="r" style="color:' + (x.lb ? '#9aa39d' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#9aa39d' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
         '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:' + MC.lunch.a + '"></div><div style="width:' + (x.d / max * 100) + '%;background:' + MC.dinner.a + '"></div></div>' +
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
     }).join('') +
@@ -637,20 +642,20 @@ function msView(key) {
   const c = MS[key], opts = c.opts(), sel = c.get().filter(v => opts.some(o => o[0] === v)), open = S.ms === key;
   const one = sel.length === 1 ? opts.find(o => o[0] === sel[0])[1] : '';
   const label = !sel.length ? esc(c.all) : one ? esc(one) : esc(c.label) + ' ·';
-  const badge = sel.length > 1 ? '<span style="flex:none;font-size:12px;font-weight:700;padding:2px 7px;border-radius:999px;background:#E3F1E5;color:#2B5234">' + sel.length + ' dipilih</span>' : '';
+  const badge = sel.length > 1 ? '<span style="flex:none;font-size:12px;font-weight:700;padding:2px 7px;border-radius:999px;background:#e4f3ea;color:#194e3d">' + sel.length + ' dipilih</span>' : '';
   let h = '<div data-ms-root="' + key + '" style="position:relative;width:' + c.w + 'px;max-width:100%">' +
-    '<button type="button" data-a="msToggle" data-k="' + key + '" aria-haspopup="listbox" aria-expanded="' + open + '" style="width:100%;height:44px;padding:0 12px 0 14px;border-radius:10px;border:1px solid #DADDD8;background:#FFFFFF;color:#1E2A21;font-size:15px;display:flex;align-items:center;gap:8px;text-align:left">' +
+    '<button type="button" data-a="msToggle" data-k="' + key + '" aria-haspopup="listbox" aria-expanded="' + open + '" style="width:100%;height:44px;padding:0 12px 0 14px;border-radius:8px;border:1px solid #d5d9d4;background:#FFFFFF;color:#1d211f;font-size:15px;display:flex;align-items:center;gap:8px;text-align:left">' +
     '<span style="flex:' + (badge ? '0 1 auto' : '1') + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + label + '</span>' + badge +
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-left:auto;transform:rotate(' + (open ? 180 : 0) + 'deg)"><path d="M6 9l6 6 6-6"></path></svg></button>';
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5d6560" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-left:auto;transform:rotate(' + (open ? 180 : 0) + 'deg)"><path d="M6 9l6 6 6-6"></path></svg></button>';
   if (open) {
-    h += '<div role="listbox" aria-multiselectable="true" data-keep="ms-' + key + '" style="position:absolute;z-index:45;top:calc(100% + 6px);left:0;min-width:100%;width:max-content;max-width:min(320px,calc(100vw - 32px));max-height:280px;overflow-y:auto;background:#FFFFFF;border:1px solid #E4E6E2;border-radius:12px;box-shadow:0 12px 32px rgba(30,42,33,0.18);padding:0 4px 4px">' +
+    h += '<div role="listbox" aria-multiselectable="true" data-keep="ms-' + key + '" style="position:absolute;z-index:45;top:calc(100% + 6px);left:0;min-width:100%;width:max-content;max-width:min(320px,calc(100vw - 32px));max-height:280px;overflow-y:auto;background:#FFFFFF;border:1px solid #e3e6e1;border-radius:12px;box-shadow:0 8px 24px rgba(20,24,22,0.14);padding:0 4px 4px">' +
       '<div style="position:sticky;top:0;z-index:1;background:#FFFFFF;display:flex;justify-content:space-between;gap:16px;padding:10px 10px 8px;margin:0 -4px 4px;border-bottom:1px solid #EEF0EC">' +
-      '<button type="button" data-a="msAll" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#3B6D45;font-size:13px;font-weight:600">Pilih semua</button>' +
-      '<button type="button" data-a="msNone" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#5F6B63;font-size:13px;font-weight:600">Kosongkan</button></div>' +
+      '<button type="button" data-a="msAll" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#1f5f4a;font-size:13px;font-weight:600">Pilih semua</button>' +
+      '<button type="button" data-a="msNone" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#5d6560;font-size:13px;font-weight:600">Kosongkan</button></div>' +
       opts.map(o => {
         const on = sel.indexOf(o[0]) >= 0;
-        return '<button type="button" role="option" aria-selected="' + on + '" class="ms-row" data-a="msPick" data-k="' + key + '" data-v="' + esc(o[0]) + '" style="display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#1E2A21;font-size:14px;text-align:left">' +
-          '<span style="flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;' + (on ? 'background:#3B6D45' : 'border:1px solid #DADDD8;background:#FFFFFF') + '">' + (on ? CHECK : '') + '</span>' + esc(o[1]) + '</button>';
+        return '<button type="button" role="option" aria-selected="' + on + '" class="ms-row" data-a="msPick" data-k="' + key + '" data-v="' + esc(o[0]) + '" style="display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#1d211f;font-size:14px;text-align:left">' +
+          '<span style="flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;' + (on ? 'background:#1f5f4a' : 'border:1px solid #d5d9d4;background:#FFFFFF') + '">' + (on ? CHECK : '') + '</span>' + esc(o[1]) + '</button>';
       }).join('') + '</div>';
   }
   return h + '</div>';
@@ -682,29 +687,29 @@ function feedbackView() {
   const ses = fbFiltered(), all = tally([].concat.apply([], ses.map(x => x.list)));
   h += '<span class="h20">' + periodTitle(F.from, F.to) + '</span><div class="stats">' +
     statView('Respons', nf(all.n), ses.length + ' sesi makan') +
-    statView('Menilai Enak', pct(all.c.enak, all.n) + '%', pct(all.c.kurang, all.n) + '% menilai Kurang', false, pct(all.c.enak, all.n) >= 60 ? '#3B6D45' : '#9A5A0C') +
-    statView('Catatan terbanyak', all.top ? all.top[0] : '—', all.top ? all.top[1] + ' kali disebut' : 'Belum ada catatan', false, all.top ? '#9A5A0C' : null) + '</div>';
-  h += '<div class="trend"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><b style="font-size:16px">Penilaian “Enak” per minggu</b><span class="muted" style="font-size:13px">8 minggu terakhir</span></div>' +
-    '<div class="trend-g">' + F.trend.map(w => { const p = pct(w.e, w.n); return '<div class="trend-c"><b>' + (w.n ? p + '%' : '—') + '</b><i style="height:' + (w.n ? Math.max(2, p) : 0) + 'px;background:' + (p < 60 ? '#C97A1E' : '#3B6D45') + '"></i><span>' + dnum(w.ws) + ' ' + MON[mnum(w.ws)] + '</span></div>'; }).join('') + '</div></div>';
+    statView('Menilai Enak', pct(all.c.enak, all.n) + '%', pct(all.c.kurang, all.n) + '% menilai Kurang', false, pct(all.c.enak, all.n) >= 60 ? '#1f5f4a' : '#8a5a0b') +
+    statView('Catatan terbanyak', all.top ? all.top[0] : '—', all.top ? all.top[1] + ' kali disebut' : 'Belum ada catatan', false, all.top ? '#8a5a0b' : null) + '</div>';
+  h += '<div class="trend"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><b style="font-size:15px;font-weight:600">Penilaian “Enak” per minggu</b><span class="muted" style="font-size:13px">8 minggu terakhir</span></div>' +
+    '<div class="trend-g">' + F.trend.map(w => { const p = pct(w.e, w.n); return '<div class="trend-c"><b>' + (w.n ? p + '%' : '—') + '</b><i style="height:' + (w.n ? Math.max(2, p) : 0) + 'px;background:' + (p < 60 ? '#cf8a6f' : '#1f5f4a') + '"></i><span>' + dnum(w.ws) + ' ' + MON[mnum(w.ws)] + '</span></div>'; }).join('') + '</div></div>';
   const selKey = H.fbSel && ses.some(x => x.date + '-' + x.meal === H.fbSel) ? H.fbSel : ses[0] ? ses[0].date + '-' + ses[0].meal : null;
   h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + FB_COLS + '"><span>Tanggal</span><span>Waktu</span><span class="r">Respons</span><span>Penilaian</span><span>Catatan utama</span></div>' +
     '<div class="tbody" style="max-height:420px" data-keep="fb">' + ses.map(x => {
       const t = tally(x.list), on = x.date + '-' + x.meal === selKey, pe = pct(t.c.enak, t.n), low = pe < 50;
-      const bg = on ? '#F3F8F3' : low ? '#FFF8EC' : '#FFFFFF';
-      return '<div class="tr click" data-a="fbSel" data-k="' + x.date + '-' + x.meal + '" style="grid-template-columns:' + FB_COLS + ';font-size:14px;background:' + bg + (on ? ';box-shadow:inset 3px 0 0 #3B6D45' : '') + '">' +
+      const bg = on ? '#eef5f1' : low ? '#fbf0d9' : '#FFFFFF';
+      return '<div class="tr click" data-a="fbSel" data-k="' + x.date + '-' + x.meal + '" style="grid-template-columns:' + FB_COLS + ';font-size:14px;background:' + bg + (on ? ';box-shadow:inset 3px 0 0 #1f5f4a' : '') + '">' +
         '<span style="white-space:nowrap;font-weight:600">' + fmt(x.date) + '</span>' + mealPill(x.meal) + '<span class="r">' + t.n + '</span>' +
-        '<div style="display:flex;flex-direction:column;gap:5px;min-width:0"><div class="rbar"><div style="width:' + pct(t.c.enak, t.n) + '%;background:#3B6D45"></div><div style="width:' + pct(t.c.biasa, t.n) + '%;background:#B7BDB8"></div><div style="width:' + pct(t.c.kurang, t.n) + '%;background:#C97A1E"></div></div>' +
-        '<span style="font-size:12px;font-weight:600;color:' + (low ? '#9A5A0C' : '#3F4A43') + '">' + pe + '% enak · ' + t.c.kurang + ' kurang</span></div>' +
-        '<span class="ell" style="font-size:13px;color:' + (t.top ? (t.c.kurang ? '#9A5A0C' : '#1E2A21') : '#8A948D') + '">' + (t.top ? esc(t.top[0]) + ' (' + t.top[1] + ')' : '—') + '</span></div>';
+        '<div style="display:flex;flex-direction:column;gap:5px;min-width:0"><div class="rbar"><div style="width:' + pct(t.c.enak, t.n) + '%;background:#1f5f4a"></div><div style="width:' + pct(t.c.biasa, t.n) + '%;background:#c5cbc6"></div><div style="width:' + pct(t.c.kurang, t.n) + '%;background:#cf8a6f"></div></div>' +
+        '<span style="font-size:12px;font-weight:600;color:' + (low ? '#8a5a0b' : '#4a524d') + '">' + pe + '% enak · ' + t.c.kurang + ' kurang</span></div>' +
+        '<span class="ell" style="font-size:13px;color:' + (t.top ? (t.c.kurang ? '#8a5a0b' : '#1d211f') : '#9aa39d') + '">' + (t.top ? esc(t.top[0]) + ' (' + t.top[1] + ')' : '—') + '</span></div>';
     }).join('') + (ses.length ? '' : '<div class="empty">' + (F.sessions.length ? 'Tidak ada sesi makan yang cocok dengan filter.' : 'Belum ada masukan dalam 14 hari terakhir.') + '</div>') + '</div></div></div>';
   const S2 = ses.find(x => x.date + '-' + x.meal === selKey);
   if (S2) {
     const t = tally(S2.list), order = { kurang: 0, biasa: 1, enak: 2 };
     const cm = S2.list.filter(e => e.note || e.tags.length).sort((a, b) => order[a.r] - order[b.r]);
-    h += '<div class="cmt-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:16px">' + swatch(S2.meal) + (S2.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(S2.date) + '</b>' +
+    h += '<div class="cmt-card"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:15px;font-weight:600">' + swatch(S2.meal) + (S2.meal === 'lunch' ? 'Makan siang' : 'Makan malam') + ' · ' + fmt(S2.date) + '</b>' +
       '<span class="muted" style="font-size:13px">' + t.n + ' respons · ' + t.c.enak + ' enak, ' + t.c.biasa + ' biasa, ' + t.c.kurang + ' kurang</span></div><span class="adm-pill">Nama hanya terlihat oleh admin</span></div>' +
       cm.map(e => '<div class="cmt"><span class="rp ' + e.r + '">' + RATE_LABEL[e.r] + '</span><div style="display:flex;flex-direction:column;gap:6px;min-width:0">' + (e.note ? '<span style="font-size:14px;line-height:1.45">' + esc(e.note) + '</span>' : '') +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + e.tags.map(g => '<span class="tg">' + esc(g) + '</span>').join('') + '</div></div><span style="font-size:13px;color:#5F6B63;text-align:right">' + esc(e.who) + '</span></div>').join('') +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' + e.tags.map(g => '<span class="tg">' + esc(g) + '</span>').join('') + '</div></div><span style="font-size:13px;color:#5d6560;text-align:right">' + esc(e.who) + '</span></div>').join('') +
       (cm.length ? '' : '<span class="muted">Belum ada catatan tertulis untuk sesi ini.</span>') + '</div>';
   }
   return h;
@@ -716,7 +721,7 @@ function printView() {
   const s = daySums(day), agg = splitOfRows(day.rows, day.stores), ci = cutInfo(day.date, nowJ());
   const cell = v => '<span class="r">' + nf(v) + '</span>';
   return '<div class="print-wrap"><div class="print-col"><div class="print-a"><button class="btn" data-a="closePrint">Tutup</button><button class="btn-primary sm" data-a="doPrint">Cetak</button></div>' +
-    '<div class="sheet" id="kprint"><div class="sheet-h"><div class="l"><small>Segari · Program Makan</small><b>Kebutuhan dapur</b><span>' + fmtLong(day.date) + '</span></div>' +
+    '<div class="sheet" id="kprint"><div class="sheet-h"><div class="l"><span style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' + logoFull(36) + '<small>Program Makan</small></span><b>Kebutuhan dapur</b><span>' + fmtLong(day.date) + '</span></div>' +
     '<div class="rt"><b>' + ci.short + '</b><span>Dicetak ' + esc(H.printAt) + '</span></div></div>' +
     '<div class="boxes">' +
     '<div class="box"><small>Makan siang</small><b>' + (day.lb ? 'Tutup' : nf(s.l)) + '</b><span>' + esc(day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30') + '</span></div>' +
