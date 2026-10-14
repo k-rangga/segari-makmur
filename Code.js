@@ -11,6 +11,9 @@ const SESSION_DAYS = 30;
 const LUNCH_FB_FROM = 12 * 60;        // feedback opens 12:00 for lunch
 const DINNER_FB_FROM = 18 * 60 + 30;  // and 18:30 for dinner
 const FB_EDIT_DAYS = 3;
+// Browser-tab icon: the Segari mark (logo/segari-mark.svg) as PNG, served from the public repo
+// because HtmlService only accepts a favicon URL.
+const FAVICON_URL = 'https://raw.githubusercontent.com/k-rangga/segari-makmur/main/assets/favicon.png';
 const FB_TAGS = ['Porsi kurang', 'Kurang hangat', 'Terlalu asin', 'Terlalu pedas', 'Kurang variasi', 'Antre lama', 'Menu favorit'];
 
 const SHEETS = {
@@ -34,6 +37,7 @@ const DEFAULT_SETTINGS = [
 function doGet() {
   return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Segari · Program Makan')
+    .setFaviconUrl(FAVICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
