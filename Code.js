@@ -14,12 +14,10 @@ const FB_EDIT_DAYS = 3;
 // Browser-tab icon: the Segari mark (logo/segari-mark.svg) as PNG, served from the public repo
 // because HtmlService only accepts a favicon URL.
 const FAVICON_URL = 'https://raw.githubusercontent.com/k-rangga/segari-makmur/main/assets/favicon.png';
-// Linked from confirmation emails.
-const APP_URL = 'https://script.google.com/macros/s/AKfycbxvRrxTBxyJ7-avDI-ifKyYhF_yXjiiQQ4ObZhCsiNNYBugrn8XiVloNFyMcCZkl4c3iw/exec';
 const FB_TAGS = ['Porsi kurang', 'Kurang hangat', 'Terlalu asin', 'Terlalu pedas', 'Kurang variasi', 'Antre lama', 'Menu favorit'];
 
 const SHEETS = {
-  employee: ['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Role', 'Aktif', 'Email'],
+  employee: ['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Role', 'Aktif'],
   pendaftaran: ['Tanggal', 'NIK', 'Siang', 'Malam', 'Diperbarui'],
   tutup: ['Grup', 'Tanggal', 'Waktu', 'Alasan', 'Dibuat oleh', 'Dibuat pada'],
   masukan: ['Tanggal', 'Waktu', 'NIK', 'Nilai', 'Tag', 'Catatan', 'Diperbarui'],
@@ -32,11 +30,7 @@ const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masu
 const DEFAULT_SETTINGS = [
   ['batas_hari', '3', 'Pendaftaran minggu depan ditutup N hari sebelum Senin (3 = Jumat, 1 = Minggu)'],
   ['batas_jam', '23:59', 'Jam batas pendaftaran (HH:MM)'],
-  ['maks_porsi', '3', 'Maksimal porsi per waktu makan'],
-  ['email_konfirmasi', 'ya', 'Kirim email konfirmasi setelah karyawan mengirim pendaftaran (ya/tidak). Butuh kolom Email di tab employee.'],
-  ['email_pengirim', 'program-makan@segari.id', 'Alamat pengirim. Harus terdaftar sebagai "Send mail as" di Gmail pemilik script; kosongkan untuk memakai email pemilik.'],
-  ['email_nama_pengirim', 'Segari Program Makan', 'Nama pengirim yang tampil di email'],
-  ['email_balas_ke', '', 'Alamat untuk balasan (opsional; kosong = balasan ke alamat pengirim)']
+  ['maks_porsi', '3', 'Maksimal porsi per waktu makan']
 ];
 
 // ---------------------------------------------------------------- web app
@@ -85,9 +79,9 @@ const ACTIONS = {
 
 function ensureSetup_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('setup_v3')) return;           // bump when SHEETS/DEFAULT_SETTINGS change (v3: email)
+  if (props.getProperty('setup_v2')) return;           // bump when SHEETS gains a tab (v2: voucher)
   setupSheets();
-  props.setProperty('setup_v3', '1');
+  props.setProperty('setup_v2', '1');
 }
 
 /** Creates missing tabs and headers. Safe to run again from the editor. */
@@ -101,19 +95,11 @@ function setupSheets() {
     if (first.every(v => !String(v).trim())) {
       sh.getRange(1, 1, 1, hdr.length).setValues([hdr]).setFontWeight('bold');
       sh.setFrozenRows(1);
-    } else {
-      // Existing tab: add any new columns at the end without touching the rest.
-      const width = sh.getLastColumn();
-      const have = sh.getRange(1, 1, 1, width).getDisplayValues()[0].map(h => String(h).trim().toLowerCase());
-      const missing = hdr.filter(h => have.indexOf(h.toLowerCase()) < 0);
-      if (missing.length) sh.getRange(1, width + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
     }
     (TEXT_COLS[name] || []).forEach(c => sh.getRange(c + ':' + c).setNumberFormat('@'));
   });
   const set = ss.getSheetByName('pengaturan');
-  const keys = set.getLastRow() > 1 ? set.getRange(2, 1, set.getLastRow() - 1, 1).getDisplayValues().map(r => String(r[0]).trim().toLowerCase()) : [];
-  const add = DEFAULT_SETTINGS.filter(d => keys.indexOf(d[0]) < 0);
-  if (add.length) set.getRange(set.getLastRow() + 1, 1, add.length, 3).setValues(add);
+  if (set.getLastRow() < 2) set.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setValues(DEFAULT_SETTINGS);
 }
 
 function ss_() {
@@ -197,7 +183,7 @@ function employees_(fresh) {
     const dept = r.departemen || '', kat = r.kategori || '';
     const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
     return {
-      nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store: r.store || 'Tanpa store', collar, email: String(r.email || '').trim(),
+      nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store: r.store || 'Tanpa store', collar,
       admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak|no|false|0|n|nonaktif)$/i.test(r.aktif || '')
     };
   }).filter(e => e.nik && e.name), fresh);
@@ -476,7 +462,7 @@ function saveRegistrations_(me, changes, code) {
     };
   });
   const dates = Object.keys(clean).sort(), rg = myRange_(now), reg = {};
-  let used = null, changedAll = {};
+  let used = null;
   // Kept short for the Friday rush: the caller's current portions come from the month cache
   // (only this NIK writes these rows, always through this lock), changed days are appended
   // (no lookup), and the cache is updated in place so other users keep reading it warm.
@@ -495,7 +481,6 @@ function saveRegistrations_(me, changes, code) {
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
       patchRegs_(me.nik, changed);
     }
-    changedAll = changed;
     if (redeem) {
       sheet_('voucher').getRange(redeem.v._row, 4, 1, 4).setValues([[me.nik, ts, redeem.discount, splitText_(redeem.split)]]);
       used = { code: redeem.v.code, discount: redeem.discount, split: redeem.split, at: ts };
@@ -506,9 +491,7 @@ function saveRegistrations_(me, changes, code) {
   regsMonths_(monthsBetween_(rg.from, rg.to)).forEach(r => {
     if (r.nik === me.nik && r.date >= rg.from && r.date <= rg.to) reg[r.date] = { l: r.l, d: r.d };
   });
-  // Confirmation email after the lock is released; a mail problem never affects the save.
-  const mailed = Object.keys(changedAll).length || used ? sendConfirmation_(me, changedAll, used, s, now) : false;
-  return { reg, saved: dates.length, skipped, voucher: used, mailed };
+  return { reg, saved: dates.length, skipped, voucher: used };
 }
 
 /**
@@ -559,130 +542,6 @@ function saveFeedback_(me, p) {
     cache_().remove(FB_PREFIX + p.date.slice(0, 7));
   });
   return { key: p.date + '-' + meal, fb: { r: p.r, tags, note } };
-}
-
-// ---------------------------------------------------------------- email
-// Confirmation emails go out through the Gmail API (advanced service, send-only `gmail.send`
-// permission) so they can come *from* a group address such as program-makan@segari.id.
-// That address must be a verified "Send mail as" alias in the script owner's Gmail.
-
-const ID_DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-const ID_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const ID_MONTH = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const fmtDay_ = k => ID_DAYS[dow_(k)] + ', ' + Number(k.slice(8)) + ' ' + ID_MON[Number(k.slice(5, 7)) - 1] + ' ' + k.slice(0, 4);
-const rp_ = n => 'Rp ' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-const esc_ = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-function mailSettings_() {
-  return cached_('mail1', () => {
-    const m = {};
-    readTable_('pengaturan').rows.forEach(r => { m[String(r.kunci).toLowerCase()] = r.nilai; });
-    const reply = String(m.email_balas_ke || '').trim(), from = String(m.email_pengirim || '').trim();
-    return { on: !/^(tidak|no|false|0|off|n)$/i.test(String(m.email_konfirmasi || 'ya').trim()),
-      from: EMAIL_RE.test(from) ? from : '', name: String(m.email_nama_pengirim || 'Segari Program Makan').trim(), replyTo: EMAIL_RE.test(reply) ? reply : '' };
-  });
-}
-
-function mealText_(v) {
-  if (!v.l && !v.d) return 'Dibatalkan';
-  const part = (q, n) => q ? n + (q > 1 ? ' ×' + q : '') : '';
-  return [part(v.l, 'Siang'), part(v.d, 'Malam')].filter(Boolean).join(' + ');
-}
-
-/** Sends the confirmation for one submission. Returns true when an email went out. */
-function sendConfirmation_(me, changed, used, s, now) {
-  try {
-    const cfg = mailSettings_();
-    if (!cfg.on || !EMAIL_RE.test(me.email || '')) return false;
-    const days = Object.keys(changed).sort(), months = {};
-    days.forEach(k => { months[k.slice(0, 7)] = true; });
-    if (used) Object.keys(used.split).forEach(m => { months[m] = true; });
-    const closures = closures_(), mine = {};
-    regsMonths_(Object.keys(months)).forEach(r => { if (r.nik === me.nik) mine[r.date] = r; });
-    const vouchers = myVouchers_(me.nik, Object.keys(months).sort()[0] + '-01', monthEnd_(Object.keys(months).sort().slice(-1)[0]));
-    const sums = Object.keys(months).sort().map(ym => {
-      let l = 0, d = 0;
-      Object.keys(mine).forEach(k => {
-        if (k.slice(0, 7) !== ym) return;
-        if (!blockOf_(closures, k, 'lunch')) l += mine[k].l;
-        if (!blockOf_(closures, k, 'dinner')) d += mine[k].d;
-      });
-      const v = vouchers.reduce((a, x) => a + (x.split[ym] || 0), 0);
-      return { ym, l, d, v, total: Math.max(0, (l + d) * PRICE - v) };
-    });
-    const first = days.length ? days[0] : null, c = first ? cutoff_(first, s) : null;
-    const until = c && !locked_(first, s, now) ? ID_DAYS[dow_(c.key)] + ' ' + Number(c.key.slice(8)) + ' ' + ID_MON[Number(c.key.slice(5, 7)) - 1] + ', ' + s.cutTime : '';
-    const monthName = ym => ID_MONTH[Number(ym.slice(5)) - 1] + ' ' + ym.slice(0, 4);
-    const firstName = String(me.name).split(' ')[0];
-    const subject = 'Pendaftaran makan tercatat · ' + (days.length ? days.length + ' hari diubah' : 'voucher ' + used.code);
-
-    const text = ['Halo ' + firstName + ',', '', 'Pendaftaran makanmu sudah tercatat (' + stamp_() + ' WIB).', '']
-      .concat(days.map(k => '- ' + fmtDay_(k) + ': ' + mealText_(changed[k])))
-      .concat(used ? ['', 'Voucher ' + used.code + ': potongan ' + rp_(used.discount)] : [])
-      .concat([''], sums.map(m => monthName(m.ym) + ': ' + m.l + ' siang, ' + m.d + ' malam' + (m.v ? ', voucher -' + rp_(m.v) : '') + ' · potongan gaji ' + rp_(m.total)))
-      .concat(until ? ['', 'Masih bisa diubah sampai ' + until + '.'] : [])
-      .concat(['', 'Buka Program Makan: ' + APP_URL, '', 'Email ini dikirim otomatis. ' + (cfg.replyTo ? 'Pertanyaan? Balas email ini.' : 'Pertanyaan? Hubungi admin program makan.')]).join('\n');
-
-    const td = 'padding:10px 0;border-bottom:1px solid #f3f4f1;font-size:14px';
-    const html = '<div style="background:#f4f5f2;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',system-ui,sans-serif;color:#1d211f">' +
-      '<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e6e1;border-radius:12px;padding:24px">' +
-      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px"><img src="' + FAVICON_URL + '" width="28" height="28" alt="Segari" style="display:block"><b style="font-size:15px">Segari Program Makan</b></div>' +
-      '<h1 style="margin:0 0 6px;font-size:20px;font-weight:600">Pendaftaran makanmu sudah tercatat</h1>' +
-      '<p style="margin:0 0 18px;font-size:14px;color:#5d6560">Halo ' + esc_(firstName) + ', ini rincian yang baru saja kamu kirim (' + esc_(stamp_()) + ' WIB).</p>' +
-      (days.length ? '<table style="width:100%;border-collapse:collapse;margin-bottom:16px">' + days.map(k => {
-        const v = changed[k], off = !v.l && !v.d;
-        return '<tr><td style="' + td + '">' + esc_(fmtDay_(k)) + '</td><td style="' + td + ';text-align:right;font-weight:600;color:' + (off ? '#8a5a0b' : '#1f5f4a') + '">' + esc_(mealText_(v)) + '</td></tr>';
-      }).join('') + '</table>' : '') +
-      (used ? '<p style="margin:0 0 16px;padding:10px 12px;border-radius:8px;background:#e4f3ea;color:#194e3d;font-size:14px">Voucher <b>' + esc_(used.code) + '</b> dipakai · potongan ' + rp_(used.discount) + '</p>' : '') +
-      '<table style="width:100%;border-collapse:collapse;margin-bottom:16px">' + sums.map(m =>
-        '<tr><td style="' + td + '"><b>' + monthName(m.ym) + '</b><br><span style="color:#5d6560;font-size:13px">' + m.l + ' siang · ' + m.d + ' malam' + (m.v ? ' · voucher −' + rp_(m.v) : '') + '</span></td>' +
-        '<td style="' + td + ';text-align:right"><span style="color:#5d6560;font-size:13px">Potongan gaji</span><br><b style="font-size:16px">' + rp_(m.total) + '</b></td></tr>').join('') + '</table>' +
-      (until ? '<p style="margin:0 0 18px;font-size:14px;color:#4a524d">Masih bisa diubah sampai <b>' + esc_(until) + '</b>.</p>' : '') +
-      '<a href="' + APP_URL + '" style="display:inline-block;background:#1f5f4a;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 18px;border-radius:8px">Buka Program Makan</a>' +
-      '<p style="margin:20px 0 0;font-size:12px;color:#7a837d">Email ini dikirim otomatis. ' + (cfg.replyTo ? 'Ada pertanyaan? Balas email ini.' : 'Ada pertanyaan? Hubungi admin program makan.') + '</p>' +
-      '</div></div>';
-
-    sendMail_(cfg, me.email, subject, text, html);
-    return true;
-  } catch (e) {
-    console.warn('Email konfirmasi gagal: ' + e);
-    return false;
-  }
-}
-
-/** Builds a UTF-8 multipart (text + HTML) message and sends it with the Gmail API. */
-function sendMail_(cfg, to, subject, text, html) {
-  const b = 'pm' + Utilities.getUuid().replace(/-/g, '');
-  const enc = s => Utilities.base64Encode(s, Utilities.Charset.UTF_8).replace(/(.{76})/g, '$1\r\n');
-  const word = v => '=?UTF-8?B?' + Utilities.base64Encode(v, Utilities.Charset.UTF_8) + '?=';
-  const head = [];
-  if (cfg.from) head.push('From: ' + word(cfg.name) + ' <' + cfg.from + '>');   // no From = the owner's address
-  head.push('To: ' + to);
-  if (cfg.replyTo) head.push('Reply-To: ' + cfg.replyTo);
-  head.push('Subject: ' + word(subject), 'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="' + b + '"');
-  const mime = head.concat(['', '--' + b, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', enc(text),
-    '--' + b, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', enc(html), '--' + b + '--', '']).join('\r\n');
-  Gmail.Users.Messages.send({ raw: Utilities.base64EncodeWebSafe(mime, Utilities.Charset.UTF_8) }, 'me');
-}
-
-/**
- * Run once from the editor after this update: grants the Gmail "send email" permission, logs the
- * setup and sends a test email to the first admin with an Email, so you can check the From address.
- * If it arrives from the owner's address instead of the sender, the "Send mail as" alias is not verified yet.
- */
-function checkEmailSetup() {
-  const cfg = mailSettings_(), emps = employees_(true), withMail = emps.filter(e => EMAIL_RE.test(e.email));
-  Logger.log('Email konfirmasi: ' + (cfg.on ? 'aktif' : 'nonaktif'));
-  Logger.log('Pengirim: ' + cfg.name + ' <' + (cfg.from || 'email pemilik script') + '>');
-  Logger.log('Balas ke: ' + (cfg.replyTo || '(alamat pengirim)'));
-  Logger.log('Karyawan dengan email: ' + withMail.length + ' dari ' + emps.length);
-  const admin = withMail.find(e => e.admin);
-  if (!admin) return Logger.log('Tes tidak dikirim: belum ada admin dengan Email di tab employee.');
-  sendMail_(cfg, admin.email, 'Tes email Segari Program Makan',
-    'Ini email tes. Kalau pengirimnya ' + (cfg.from || 'email pemilik script') + ', pengaturan email sudah benar.',
-    '<p style="font-family:sans-serif">Ini email tes. Kalau pengirimnya <b>' + esc_(cfg.from || 'email pemilik script') + '</b>, pengaturan email sudah benar.</p>');
-  Logger.log('Email tes dikirim ke ' + admin.email + '. Cek alamat pengirimnya.');
 }
 
 // ---------------------------------------------------------------- vouchers
@@ -965,7 +824,7 @@ function saveSettings_(p) {
       if (r) sh.getRange(r._row, 2).setValue(kv[1]);
       else sh.appendRow([kv[0], kv[1], '']);
     });
-    forget_(['set1', 'mail1'], ['pengaturan']);
+    forget_(['set1'], ['pengaturan']);
   });
   return settings_();
 }

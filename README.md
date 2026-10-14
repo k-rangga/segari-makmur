@@ -18,26 +18,17 @@ Spreadsheet ID is `SPREADSHEET_ID` in `Code.js`. Missing tabs and headers are cr
 
 | Tab | Columns | Notes |
 |---|---|---|
-| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif, Email | **Fill this in.** Kategori `White collar`/`Blue collar` (blank → Gudang/Operasional count as blue). Role `admin` unlocks Rekap porsi + Tutup kantin. Aktif `Tidak` blocks login. Email (optional) receives a confirmation after each submission. |
+| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif | **Fill this in.** Kategori `White collar`/`Blue collar` (blank → Gudang/Operasional count as blue). Role `admin` unlocks Rekap porsi + Tutup kantin. Aktif `Tidak` blocks login. |
 | `pendaftaran` | Tanggal, NIK, Siang, Malam, Diperbarui | Portions per meal, **append-only**: every save adds rows and the newest row for a Tanggal + NIK wins (older rows are history). To change a registration by hand, add a new row rather than editing an old one. Run `compactRegistrations` from the editor (or on a weekly time-driven trigger) to drop superseded rows. |
 | `tutup` | Grup, Tanggal, Waktu, Alasan, Dibuat oleh, Dibuat pada | Canteen closures. Registrations on closed meals are ignored (kept, so reopening restores them). |
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | Feedback. Kitchen CSV export is anonymous; admins see names. |
 | `menu` | Tanggal, Siang, Malam | Optional menu names shown in feedback prompts. |
 | `voucher` | Kode, Nilai, Berlaku sampai, Dipakai oleh, Dipakai pada, Potongan, Rincian, Diunggah pada, Diunggah oleh | Single-use discount codes (fixed Rupiah). Admins bulk-upload them on the **Voucher** page (CSV `kode,nilai,berlaku_sampai`). An employee enters a code when submitting; it takes that submission's new portions off the deduction, capped at their cost, and records the split per month in Rincian. |
-| `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` (3 = Friday before the week), `batas_jam` (23:59), `maks_porsi` (3), `email_konfirmasi` (ya/tidak), `email_pengirim` (program-makan@segari.id), `email_nama_pengirim`, `email_balas_ke` (optional Reply-To). |
+| `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` (3 = Friday before the week), `batas_jam` (23:59), `maks_porsi` (3). |
 
 Caching: employees, settings, closures, menus, vouchers and per-month registrations and feedback are cached server-side for 5 minutes. Changes made through the app update the cache immediately; manual edits in the sheet appear within 5 minutes.
 
 Login: employees type their NIK and full name exactly as in `employee` (case and extra spaces ignored). Sessions last 30 days. 8 wrong attempts lock that NIK for 15 minutes.
-
-## Email
-
-Confirmations are sent through the Gmail API (advanced service, send-only `gmail.send` permission) **from `program-makan@segari.id`** (setting `email_pengirim`). One-time setup:
-
-1. In the script owner's Gmail (kalaka@segari.id): Settings → Accounts → **Send mail as** → *Add another email address* → `program-makan@segari.id`, then confirm with the code Google sends to that group.
-2. Run `checkEmailSetup` from the script editor: it grants the permission, logs the setup and sends a test email to the first admin with an Email. If the test arrives from the owner's address, the alias is not verified yet.
-
-`email_nama_pengirim` sets the display name, `email_balas_ke` an optional Reply-To (blank = replies go to the sender). Gmail's sending limit for Workspace is about 2,000 messages a day.
 
 ## Deploy
 
