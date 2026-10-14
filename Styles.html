@@ -127,6 +127,9 @@ main.emp{gap:28px}
 .tr.tot{padding:16px 20px;background:#fafbf9;font-weight:700;border-bottom:0}
 .tr .r,.r{text-align:right;font-variant-numeric:tabular-nums}
 .tbody{max-height:560px;overflow-y:auto}
+.sk{display:block;background:#e9ece7;border-radius:6px;animation:sk-pulse 1.4s ease-in-out infinite}
+@keyframes sk-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
 .empty{padding:40px 20px;text-align:center;font-size:14px;color:#5d6560}
 .grp{display:grid;gap:16px;padding:12px 20px 0;background:#fafbf9}
 .grp .w{grid-column:span 2;font-size:13px;font-weight:700;color:#194e3d;padding-bottom:6px;border-bottom:2px solid #1f5f4a}

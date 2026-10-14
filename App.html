@@ -72,11 +72,11 @@ const S = {
   view: 'meal', navClosed: ls.get('pm-navClosed') === '1',
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
-  pop: null, fbDraft: null, submitting: false, drag: null, suppress: false,
-  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', day: null, yms: [], monthCache: {},
+  pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
+  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
-  ms: null, loading: {}, toast: null
+  ms: null, loading: {}, loadErr: {}, toast: null
 };
 
 // ------------------------------------------------------------ server
@@ -85,6 +85,8 @@ function call(action, payload) {
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).api(action, S.token, payload || null);
   });
 }
+const errMsg = e => ((e && e.message) || String(e)).replace(/^Error:\s*/, '');
+const isSession = e => errMsg(e).indexOf('SESI_HABIS') >= 0;
 function fail(e) {
   const m = (e && e.message) || String(e);
   if (m.indexOf('SESI_HABIS') >= 0) return signOut('Sesi berakhir. Silakan masuk lagi.');
@@ -130,8 +132,15 @@ function pendingChanges(now) {
 }
 
 // ------------------------------------------------------------ rendering
-let root;
+let root, renderQueued = false;
 function render() {
+  if (renderQueued) return;
+  renderQueued = true;
+  const run = () => { if (!renderQueued) return; renderQueued = false; renderNow(); };
+  requestAnimationFrame(run);
+  setTimeout(run, 50);              // rAF is paused in background tabs
+}
+function renderNow() {
   const a = document.activeElement, f = a && a.dataset ? a.dataset.f : null;
   let s0 = null, s1 = null;
   try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) { /* not a text input */ }
@@ -153,15 +162,16 @@ function view() {
   return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + fbModalView() + printView() + toastView();
 }
 
-function flash(msg, undo) {
-  S.toast = { msg, undo: undo || null };
+// `act` adds a toast button: "Urungkan" by default, or `label` (e.g. "Coba lagi").
+function flash(msg, act, label) {
+  S.toast = { msg, act: act || null, label: label || null };
   clearTimeout(flash.t);
-  flash.t = setTimeout(() => { S.toast = null; render(); }, undo ? 6000 : 3000);
+  flash.t = setTimeout(() => { S.toast = null; render(); }, act ? 7000 : 3000);
   render();
 }
 function toastView() {
   if (!S.toast) return '';
-  return '<div class="toast" role="status"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.undo ? '<button data-a="undo">Urungkan</button>' : '') + '</div>';
+  return '<div class="toast" role="status"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.act ? '<button data-a="undo">' + esc(S.toast.label || 'Urungkan') + '</button>' : '') + '</div>';
 }
 
 // ------------------------------------------------------------ login
@@ -187,12 +197,12 @@ async function doLogin() {
   try {
     const r = await call('login', { nik, name: nm });
     S.token = r.token; ls.set('pm-token', r.token);
-    await boot();
     S.busy = false;
+    applyBoot(r.boot);
     flash('Selamat datang, ' + S.user.name.split(' ')[0]);
   } catch (e) {
     S.busy = false;
-    S.loginErr = ((e && e.message) || String(e)).replace(/^Error:\s*/, '');
+    S.loginErr = errMsg(e);
     render();
   }
 }
@@ -200,22 +210,43 @@ async function doLogin() {
 function signOut(msg) {
   S.token = null; ls.set('pm-token', null);
   S.user = null; S.saved = {}; S.sel = {}; S.view = 'meal'; S.pop = null; S.fbDraft = null;
-  S.hr.day = S.hr.fb = null; S.hr.monthCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
+  ls.set('pm-boot', null); S.bootData = null;
+  S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
   render();
 }
 
-async function boot() {
-  const d = await call('bootstrap');
+// Applies bootstrap data. `stale` = from this browser's cache (shown instantly, refreshed right after).
+// Later applies keep unsent edits and never overwrite registrations that are still being sent.
+function applyBoot(d, stale, skew) {
+  const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
-  S.skew = d.now.ms - Date.now();
-  S.view = d.user.admin && ['recap', 'closure'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
-  S.saved = d.reg; S.sel = clone(d.reg); S.closures = d.closures; S.menus = d.menus; S.fb = d.fb; S.mi = 0;
-  const now = nowJ();
-  S.hr.date = now.key; S.hr.yms = [now.key.slice(0, 7)];
-  S.cl.from = S.cl.to = now.key;
-  S.booting = false;
+  S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
+  if (first) {
+    S.view = d.user.admin && ['recap', 'closure'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
+    S.saved = clone(d.reg); S.sel = clone(d.reg); S.mi = 0;
+    const now = nowJ();
+    S.hr.date = now.key; S.hr.yms = [now.key.slice(0, 7)];
+    S.cl.from = S.cl.to = now.key;
+  } else if (!S.syncing) {
+    const keep = {};
+    pendingChanges(nowJ()).forEach(c => { keep[c.date] = { l: c.l, d: c.d }; });
+    S.saved = clone(d.reg); S.sel = Object.assign(clone(d.reg), keep);
+  }
+  S.closures = d.closures; S.menus = d.menus;
+  if (!S.syncing) S.fb = d.fb;
+  S.bootData = d; S.booting = false;
+  if (!stale) {
+    S.bootAt = Date.now();
+    persistBoot();
+    if (first && d.user.admin) setTimeout(() => loadDay(S.hr.date), 1200);   // warm the admin day view
+  }
   render();
 }
+function persistBoot() {
+  if (!S.bootData || !S.token) return;
+  ls.set('pm-boot', JSON.stringify({ t: S.token, skew: S.skew, d: Object.assign({}, S.bootData, { reg: S.saved, fb: S.fb }) }));
+}
+async function boot() { applyBoot(await call('bootstrap')); }
 
 // ------------------------------------------------------------ sidebar
 function sideView() {
@@ -404,7 +435,7 @@ function pendingBarView(pend, now) {
   const c = cutoffOf(pend[0].date), m = minsUntil(c, now);
   const sub = m <= 24 * 60 ? 'Kirim sebelum ' + cutLabel(c) + ' — setelah itu minggu ' + weekRange(addDays(pend[0].date, -dow(pend[0].date))) + ' terkunci dan perubahan ini hilang.' : 'Pilihanmu belum tercatat sampai kamu tekan Kirim pendaftaran.';
   return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + '</b><span>' + sub + '</span></div>' +
-    '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit"' + (S.submitting ? ' disabled' : '') + '>' + (S.submitting ? 'Mengirim…' : 'Kirim pendaftaran') + '</button></div>';
+    '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div>';
 }
 
 function summaryView(ym, now, pend) {
@@ -418,7 +449,7 @@ function summaryView(ym, now, pend) {
     '<div class="sum-rows"><div class="r2"><span>' + swatch('lunch') + 'Makan siang</span><span>' + t.l + ' porsi</span></div><div class="r2"><span>' + swatch('dinner') + 'Makan malam</span><span style="color:' + MC.dinner.x + ';font-weight:600">' + t.d + ' porsi</span></div>' +
     '<div class="r2"><span>Kantin tutup</span><span>' + t.closed + ' hari</span></div><div class="div"></div>' +
     '<div class="r2" style="align-items:baseline"><span>Potongan gaji</span><span class="sum-total">' + rp((t.l + t.d) * S.price) + '</span></div></div>' +
-    '<span class="note">' + (pend.length ? 'Termasuk pilihan yang belum dikirim.' : 'Semua pilihan sudah terkirim.') + '</span><div class="div" style="margin:0"></div>' +
+    '<span class="note">' + (S.syncing ? 'Menyimpan ke server…' : pend.length ? 'Termasuk pilihan yang belum dikirim.' : 'Semua pilihan sudah terkirim.') + '</span><div class="div" style="margin:0"></div>' +
     '<div class="sum-rows"><span style="font-size:14px;font-weight:700">' + monthName(cur) + ' sejauh ini</span>' +
     '<div class="r2"><span>Porsi terdaftar</span><span>' + soFar + ' porsi</span></div>' +
     '<div class="r2"><span>Potongan sejauh ini</span><span style="font-weight:700">' + rp(soFar * S.price) + '</span></div>' +
@@ -532,7 +563,7 @@ function cutInfo(k, now) {
 }
 
 function dayView() {
-  const H = S.hr, now = nowJ(), day = H.day && H.day.date === H.date ? H.day : null, ci = cutInfo(H.date, now);
+  const H = S.hr, now = nowJ(), day = curDay(), ci = cutInfo(H.date, now);
   const minD = addDays(now.key, -400), maxD = addDays(now.key, 120);
   let h = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><span class="h20">' + fmtLong(H.date) + '</span>' +
     '<input type="date" class="input lg" style="width:200px" data-ch="hrDate" value="' + H.date + '" min="' + minD + '" max="' + maxD + '"></div>';
@@ -543,7 +574,7 @@ function dayView() {
       '<label class="field"><span class="lbl">Pukul</span><input type="time" class="input" style="width:140px" data-ch="cutT" value="' + H.cutT + '"></label>' +
       '<div style="display:flex;gap:8px"><button class="btn-primary sm" data-a="cutSave">Simpan</button><button class="btn" data-a="cutCancel">Batal</button></div>' +
       '<span class="nt">Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi.</span></div>' : '') + '</div>';
-  if (!day) return h + '<div class="tbl"><div class="empty">Memuat data ' + fmt(H.date) + '…</div></div>';
+  if (!day) return h + skelView(8);
 
   const s = daySums(day);
   h += '<div class="stats">' +
@@ -567,6 +598,14 @@ function dayView() {
     (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
     '</div></div></div></div>';
   return h;
+}
+
+// Loading placeholders (design system: skeletons, never "0").
+const skBar = (w, h) => '<i class="sk" style="width:' + w + ';height:' + (h || 12) + 'px"></i>';
+function skelView(rows) {
+  return '<div class="stats" aria-busy="true">' + [0, 1, 2].map(() => '<div class="stat">' + skBar('40%') + skBar('55%', 26) + skBar('70%') + '</div>').join('') + '</div>' +
+    '<div class="tbl" aria-busy="true"><div class="tbar">' + skBar('180px', 14) + '</div>' +
+    Array.from({ length: rows }, () => '<div class="tr" style="grid-template-columns:2fr 1fr 1fr 1fr">' + skBar('70%') + skBar('50%') + skBar('50%') + skBar('40%') + '</div>').join('') + '</div>';
 }
 
 function statView(label, value, sub, warnSub, color, meal) {
@@ -602,7 +641,7 @@ function monthView() {
   const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1;
   let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + '<div class="spacer"></div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
-  if (yms.some(y => !H.monthCache[y])) return h + '<div class="tbl"><div class="empty">Memuat ' + (multi ? yms.length + ' bulan' : monthName(yms[0])) + '…</div></div>';
+  if (yms.some(y => !H.monthCache[y])) return h + skelView(10);
   const m = monthAgg(yms);
   let tL = 0, tD = 0;
   m.days.forEach(x => { tL += x.l; tD += x.d; });
@@ -683,7 +722,7 @@ function feedbackView() {
   const H = S.hr, F = H.fb;
   let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('fbMeal') + msView('fbRate') + msView('fbTag') +
     '<div class="spacer"></div><button class="btn lg" data-a="exportFb">Ekspor CSV untuk dapur</button></div>';
-  if (!F) return h + '<div class="tbl"><div class="empty">Memuat masukan…</div></div>';
+  if (!F) return h + skelView(6);
   const ses = fbFiltered(), all = tally([].concat.apply([], ses.map(x => x.list)));
   h += '<span class="h20">' + periodTitle(F.from, F.to) + '</span><div class="stats">' +
     statView('Respons', nf(all.n), ses.length + ' sesi makan') +
@@ -716,7 +755,7 @@ function feedbackView() {
 }
 
 function printView() {
-  const H = S.hr, day = H.day;
+  const H = S.hr, day = curDay();
   if (!H.print || !day) return '';
   const s = daySums(day), agg = splitOfRows(day.rows, day.stores), ci = cutInfo(day.date, nowJ());
   const cell = v => '<span class="r">' + nf(v) + '</span>';
@@ -761,27 +800,45 @@ function closureView() {
     '<button class="cta" data-a="addClosure"' + (!ks.length || C.busy ? ' disabled' : '') + '>' + (C.busy ? 'Menyimpan…' : 'Tutup ' + ks.length + ' hari & beri tahu ' + (im ? nf(im.people) : '…') + ' karyawan') + '</button></div></div>';
   const list = C.data ? C.data.list : null;
   h += '<div class="upc"><div class="upc-h"><b>Jadwal tutup mendatang</b><span>' + (list ? list.length + ' jadwal' : '') + '</span></div>' +
-    (!list ? '<span class="upc-e">Memuat…</span>' : list.length ? list.map(x => '<div class="upc-r"><div class="t"><b>' + fmtRange(x.dates) + (x.dates.length > 1 ? ' · ' + x.dates.length + ' hari' : '') + '</b><span>' + MEAL_NAME[x.meal] + ' · ' + esc(x.reason) + '</span></div>' +
+    (!list ? '<div class="upc-r" aria-busy="true">' + skBar('40%', 14) + skBar('20%') + '</div><div class="upc-r">' + skBar('35%', 14) + skBar('20%') + '</div>' : list.length ? list.map(x => '<div class="upc-r"><div class="t"><b>' + fmtRange(x.dates) + (x.dates.length > 1 ? ' · ' + x.dates.length + ' hari' : '') + '</b><span>' + MEAL_NAME[x.meal] + ' · ' + esc(x.reason) + '</span></div>' +
       '<span class="im">' + nf(x.impact.people) + ' karyawan · ' + nf(x.impact.portions) + ' porsi</span><button class="btn" data-a="reopen" data-g="' + esc(x.g) + '">Buka kembali</button></div>').join('') : '<span class="upc-e">Belum ada tanggal yang ditutup.</span>') + '</div>';
   return h + '</main>';
 }
 
 // ------------------------------------------------------------ data loading
 function load(key, action, payload, apply) {
-  if (S.loading[key]) return;
+  if (S.loading[key] || Date.now() - (S.loadErr[key] || 0) < 15000) return;
   S.loading[key] = true;
-  call(action, payload).then(d => { S.loading[key] = false; apply(d); render(); }).catch(e => { S.loading[key] = false; fail(e); });
+  call(action, payload)
+    .then(d => { S.loading[key] = false; if (d && typeof d === 'object' && !Array.isArray(d)) d._at = Date.now(); apply(d); render(); })
+    .catch(e => { S.loading[key] = false; S.loadErr[key] = Date.now(); fail(e); });
 }
+const fresh = (d, ms) => d && Date.now() - (d._at || 0) < ms;
+function loadDay(k) {
+  if (!S.user || !S.user.admin || fresh(S.hr.days[k], 60000)) return;
+  load('day:' + k, 'adminDay', { date: k }, d => { S.hr.days[d.date] = d; S.settings = d.settings; });
+}
+// Marks cached admin data as outdated: it stays on screen and refreshes in the background.
+function staleAdmin() {
+  const H = S.hr;
+  Object.keys(H.days).forEach(k => { H.days[k]._at = 0; });
+  Object.keys(H.monthCache).forEach(k => { H.monthCache[k]._at = 0; });
+  if (H.fb) H.fb._at = 0;
+}
+function curDay() { return S.hr.days[S.hr.date] || null; }
 function ensureData() {
   if (!S.user || !S.user.admin) return;
   const H = S.hr, C = S.cl;
   if (S.view === 'recap') {
-    if (H.mode === 'day' && (!H.day || H.day.date !== H.date)) load('day:' + H.date, 'adminDay', { date: H.date }, d => { if (d.date === H.date) { H.day = d; S.settings = d.settings; } });
-    if (H.mode === 'month') selMonths().forEach(y => { if (!H.monthCache[y]) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
-    if (H.mode === 'fb' && !H.fb) load('fb', 'adminFeedback', {}, d => { H.fb = d; });
+    if (H.mode === 'day') {
+      loadDay(H.date);
+      if (curDay()) [addDays(H.date, -1), addDays(H.date, 1)].forEach(k => { if (!H.days[k]) loadDay(k); });   // prefetch neighbours
+    }
+    if (H.mode === 'month') selMonths().forEach(y => { if (!fresh(H.monthCache[y], 120000)) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
+    if (H.mode === 'fb' && !fresh(H.fb, 60000)) load('fb', 'adminFeedback', {}, d => { H.fb = d; });
   }
   if (S.view === 'closure') {
-    if (!C.data) load('closures', 'adminClosures', {}, d => { C.data = d; });
+    if (!fresh(C.data, 30000)) load('closures', 'adminClosures', {}, d => { C.data = d; });
     const ks = closureRange(), key = ks.join(',') + '|' + C.meal;
     if (C.impKey !== key) {
       C.impKey = key; C.impact = null;
@@ -793,13 +850,7 @@ function ensureData() {
   }
 }
 async function refreshEmployee() {
-  try {
-    const d = await call('bootstrap');
-    const now = nowJ(), pend = pendingChanges(now), keepSel = {};
-    pend.forEach(c => { keepSel[c.date] = { l: c.l, d: c.d }; });
-    S.saved = d.reg; S.sel = Object.assign(clone(d.reg), keepSel); S.closures = d.closures; S.settings = d.settings; S.menus = d.menus; S.fb = d.fb;
-    render();
-  } catch (e) { fail(e); }
+  try { applyBoot(await call('bootstrap')); } catch (e) { fail(e); }
 }
 
 // ------------------------------------------------------------ CSV export
@@ -826,10 +877,14 @@ const A = {
   toggleNav() { S.navClosed = !S.navClosed; ls.set('pm-navClosed', S.navClosed ? '1' : '0'); render(); },
   logout() {
     const n = pendingChanges(nowJ()).reduce((a, c) => a + c.n, 0);
+    if (S.syncing && !window.confirm('Pendaftaran masih dikirim. Keluar sekarang?')) return;
     if (n && !window.confirm('Ada ' + n + ' perubahan yang belum dikirim. Keluar tanpa mengirim?')) return;
     signOut('');
   },
-  undo() { const u = S.toast && S.toast.undo; S.toast = null; if (u) { u(); flash('Dikembalikan'); } else render(); },
+  undo() {
+    const t = S.toast; S.toast = null;
+    if (t && t.act) { t.act(); if (!t.label) flash('Dikembalikan'); else render(); } else render();
+  },
 
   // employee
   month(el) { S.mi = Number(el.dataset.i); S.pop = null; render(); },
@@ -837,16 +892,34 @@ const A = {
   fillWeek(el) { const now = nowJ(), ym = S.months[S.mi]; daysOf(el.dataset.ws, addDays(el.dataset.ws, 6)).filter(k => k.slice(0, 7) === ym).forEach(k => fillDay(k, 'both', now)); render(); },
   clearWeek(el) { const ws = el.dataset.ws, ym = S.months[S.mi]; clearDays(daysOf(ws, addDays(ws, 6)).filter(k => k.slice(0, 7) === ym), 'Minggu ' + weekRange(ws)); },
   discard() { S.sel = clone(S.saved); S.pop = null; flash('Perubahan dibatalkan'); },
-  async submit() {
-    const now = nowJ(), pend = pendingChanges(now);
-    if (!pend.length || S.submitting) return;
-    const n = pend.reduce((a, c) => a + c.n, 0);
-    S.submitting = true; S.pop = null; render();
-    try {
-      const r = await call('saveRegistrations', { changes: pend.map(c => ({ date: c.date, l: c.l, d: c.d })) });
-      S.saved = r.reg; S.sel = clone(r.reg); S.submitting = false;
-      flash(r.skipped ? 'Sebagian terkirim · ' + r.skipped + ' tanggal sudah terkunci dan tidak tersimpan' : 'Pendaftaran terkirim · ' + n + ' perubahan tercatat');
-    } catch (e) { S.submitting = false; render(); fail(e); }
+  // Optimistic: the calendar shows the choices as registered at once; the server call runs in the
+  // background (one at a time). On failure the affected days roll back to pending with "Coba lagi".
+  submit() {
+    const pend = pendingChanges(nowJ());
+    if (!pend.length) return;
+    const n = pend.reduce((a, c) => a + c.n, 0), before = {}, changes = pend.map(c => ({ date: c.date, l: c.l, d: c.d }));
+    pend.forEach(c => {
+      before[c.date] = S.saved[c.date] ? clone(S.saved[c.date]) : null;
+      if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d }; else delete S.saved[c.date];
+    });
+    S.syncing++; S.pop = null;
+    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat');
+    S.sync = S.sync.then(() => call('saveRegistrations', { changes }).then(r => {
+      S.syncing--;
+      changes.forEach(c => {                       // align server-adjusted days (closed meal, locked) if untouched since
+        const sel = S.sel[c.date] || {}, sv = r.reg[c.date];
+        if ((sel.l || 0) === c.l && (sel.d || 0) === c.d) { if (sv) S.sel[c.date] = clone(sv); else delete S.sel[c.date]; }
+      });
+      if (!S.syncing) S.saved = r.reg;
+      if (r.skipped) flash('Sebagian tidak tersimpan · ' + r.skipped + ' tanggal sudah terkunci');
+      persistBoot(); render();
+    }, e => {
+      S.syncing--;
+      changes.forEach(c => { const b = before[c.date]; if (b) S.saved[c.date] = b; else delete S.saved[c.date]; });
+      if (isSession(e)) return fail(e);
+      flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.submit(), 'Coba lagi');
+    }));
+    render();
   },
   closePop() { S.pop = null; render(); },
   qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
@@ -857,19 +930,25 @@ const A = {
   closeFb() { S.fbDraft = null; render(); },
   fbRate(el) { S.fbDraft.r = el.dataset.r; render(); },
   fbTag(el) { const f = S.fbDraft, t = el.dataset.t, i = f.tags.indexOf(t); if (i >= 0) f.tags.splice(i, 1); else f.tags.push(t); render(); },
-  async sendFb() {
+  sendFb() {
     const f = S.fbDraft;
-    if (!f || !f.r || f.busy) return;
-    f.busy = true; render();
-    try {
-      const r = await call('saveFeedback', { date: f.k, meal: f.meal, r: f.r, tags: f.tags, note: f.note });
-      S.fb[r.key] = r.fb; S.fbDraft = null;
-      flash('Terima kasih! Masukanmu terkirim ke tim dapur');
-    } catch (e) { f.busy = false; render(); fail(e); }
+    if (!f || !f.r) return;
+    const key = f.k + '-' + f.meal, prev = S.fb[key];
+    S.fb[key] = { r: f.r, tags: f.tags.slice(), note: f.note.trim() };
+    S.fbDraft = null; S.syncing++;
+    flash('Terima kasih! Masukanmu terkirim ke tim dapur');
+    call('saveFeedback', { date: f.k, meal: f.meal, r: f.r, tags: f.tags, note: f.note }).then(r => {
+      S.syncing--; S.fb[r.key] = r.fb; persistBoot(); render();
+    }, e => {
+      S.syncing--;
+      if (prev) S.fb[key] = prev; else delete S.fb[key];
+      if (isSession(e)) return fail(e);
+      flash('Penilaian belum terkirim · ' + errMsg(e), () => { S.fbDraft = Object.assign(f, { busy: false }); }, 'Coba lagi');
+    });
   },
 
   // admin recap
-  hrMode(el) { S.hr.mode = el.dataset.v; if (S.hr.mode === 'fb') S.hr.fb = null; render(); },
+  hrMode(el) { S.hr.mode = el.dataset.v; render(); },
   sort(el) { const k = el.dataset.k, so = S.hr.sort, num = k === 'l' || k === 'd'; S.hr.sort = { k, dir: so.k === k ? -so.dir : num ? -1 : 1 }; render(); },
   openDay(el) { S.hr.mode = 'day'; S.hr.date = el.dataset.k; S.hr.meal = 'all'; render(); },
   cutEdit() { S.hr.cutEdit = true; S.hr.cutD = S.settings.cutDays; S.hr.cutT = S.settings.cutTime; render(); },
@@ -896,7 +975,7 @@ const A = {
       lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
       return download('dapur-porsi-' + monthsSlug(yms) + '.csv', lines, 'Ekspor untuk dapur');
     }
-    const d = H.day; if (!d) return;
+    const d = curDay(); if (!d) return;
     const s = daySums(d);
     const lines = ['Tanggal,' + d.date, 'Makan siang,' + (d.lb ? 'Tutup' : s.l), 'Makan malam,' + (d.db ? 'Tutup' : s.d), ''].concat(storeLines(splitOfRows(d.rows, d.stores)));
     download('dapur-porsi-' + d.date + '.csv', lines, 'Ekspor untuk dapur');
@@ -911,7 +990,7 @@ const A = {
       }).catch(fail);
       return;
     }
-    const d = H.day; if (!d) return;
+    const d = curDay(); if (!d) return;
     download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d].join(','))), 'Detail karyawan diekspor');
   },
   exportFb() {
@@ -942,7 +1021,7 @@ const A = {
     try {
       C.data = await call('addClosure', { dates: ks, meal: C.meal, reason: C.reason });
       C.busy = false; C.reason = ''; C.impKey = '';
-      S.hr.day = null; S.hr.monthCache = {};
+      staleAdmin();
       flash(fmtRange(ks) + ' ditutup' + (people != null ? ' · ' + nf(people) + ' karyawan diberi tahu' : ''));
       refreshEmployee();
     } catch (e) { C.busy = false; render(); fail(e); }
@@ -950,7 +1029,7 @@ const A = {
   async reopen(el) {
     try {
       S.cl.data = await call('removeClosure', { g: el.dataset.g });
-      S.cl.impKey = ''; S.hr.day = null; S.hr.monthCache = {};
+      S.cl.impKey = ''; staleAdmin();
       flash('Jadwal dibuka kembali');
       refreshEmployee();
     } catch (e) { fail(e); }
@@ -1029,10 +1108,21 @@ function init() {
     if (S.ms) { S.ms = null; return render(); }
     if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
   });
-  window.addEventListener('beforeunload', e => { if (S.user && pendingChanges(nowJ()).length) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', e => { if (S.user && (S.syncing || pendingChanges(nowJ()).length)) { e.preventDefault(); e.returnValue = ''; } });
+  // Coming back to an open tab refreshes quietly if the data is more than 2 minutes old.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user && !S.syncing && Date.now() - S.bootAt > 120000) refreshEmployee(); });
   setInterval(() => { if (S.user && !S.drag) render(); }, 30000);
 
-  if (S.token) boot().catch(e => { S.booting = false; fail(e); if (!S.user) signOut(''); });
+  if (S.token) {
+    let cached = null;
+    try { cached = JSON.parse(ls.get('pm-boot') || 'null'); } catch (e) { cached = null; }
+    if (cached && cached.t === S.token && cached.d) applyBoot(cached.d, true, cached.skew);
+    boot().catch(e => {
+      S.booting = false;
+      if (isSession(e) || !S.user) return isSession(e) ? fail(e) : signOut('');
+      flash('Belum bisa memuat data terbaru · ' + errMsg(e), () => refreshEmployee(), 'Coba lagi');
+    });
+  }
   else { S.booting = false; render(); }
 }
 

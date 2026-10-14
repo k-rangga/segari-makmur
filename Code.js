@@ -60,7 +60,7 @@ const ACTIONS = {
   adminMonthDetail: (token, p) => { auth_(token, true); return adminMonthDetail_(p.ym); },
   adminFeedback: token => { auth_(token, true); return adminFeedback_(); },
   adminClosures: token => { auth_(token, true); return adminClosures_(); },
-  adminImpact: (token, p) => { auth_(token, true); return impactOf_(regsAll_(), p.dates || [], p.meal); },
+  adminImpact: (token, p) => { auth_(token, true); const ds = (p.dates || []).filter(isKey_); return impactOf_(ds.length ? regsMonths_(ds.map(k => k.slice(0, 7))) : [], ds, p.meal); },
   addClosure: (token, p) => addClosure_(auth_(token, true), p),
   removeClosure: (token, p) => { auth_(token, true); return removeClosure_(p.g); },
   saveSettings: (token, p) => { auth_(token, true); return saveSettings_(p); }
@@ -104,8 +104,9 @@ function sheet_(name) {
   return sh;
 }
 
-/** Reads a tab into objects keyed by lower-cased header; `_row` is the 1-based sheet row. */
+/** Reads a tab into objects keyed by lower-cased header; `_row` is the 1-based sheet row. Memoized per request. */
 function readTable_(name) {
+  if (MEMO['t:' + name]) return MEMO['t:' + name];
   const sh = sheet_(name);
   const values = sh.getDataRange().getValues();
   const hdr = (values[0] || []).map(h => String(h).trim().toLowerCase());
@@ -116,7 +117,7 @@ function readTable_(name) {
     hdr.forEach((h, j) => { const v = norm_(values[i][j]); o[h] = v; if (v !== '') any = true; });
     if (any) rows.push(o);
   }
-  return { sheet: sh, rows };
+  return (MEMO['t:' + name] = { sheet: sh, rows });
 }
 
 function norm_(v) {
@@ -158,22 +159,25 @@ function locked_(k, s, now) {
 // ---------------------------------------------------------------- data access
 
 function settings_() {
-  const m = {};
-  readTable_('pengaturan').rows.forEach(r => { m[String(r.kunci).toLowerCase()] = r.nilai; });
-  const int = (v, lo, hi, d) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
-  const t = /^\d{1,2}:\d{2}$/.test(m.batas_jam || '') ? m.batas_jam.padStart(5, '0') : '23:59';
-  return { cutDays: int(m.batas_hari, 1, 5, 3), cutTime: t, maxPortions: int(m.maks_porsi, 1, 10, 3) };
+  return cached_('set1', () => {
+    const m = {};
+    readTable_('pengaturan').rows.forEach(r => { m[String(r.kunci).toLowerCase()] = r.nilai; });
+    const int = (v, lo, hi, d) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
+    const t = /^\d{1,2}:\d{2}$/.test(m.batas_jam || '') ? m.batas_jam.padStart(5, '0') : '23:59';
+    return { cutDays: int(m.batas_hari, 1, 5, 3), cutTime: t, maxPortions: int(m.maks_porsi, 1, 10, 3) };
+  });
 }
 
-function employees_() {
-  return readTable_('employee').rows.map(r => {
+/** `fresh` skips the cache (used when a NIK is not found, so new employees can log in at once). */
+function employees_(fresh) {
+  return cached_('emp1', () => readTable_('employee').rows.map(r => {
     const dept = r.departemen || '', kat = r.kategori || '';
     const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
     return {
       nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store: r.store || 'Tanpa store', collar,
       admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak|no|false|0|n|nonaktif)$/i.test(r.aktif || '')
     };
-  }).filter(e => e.nik && e.name);
+  }).filter(e => e.nik && e.name), fresh);
 }
 
 function storesOf_(emps) {
@@ -192,9 +196,9 @@ function mealOf_(v) {
 const MEAL_LABEL = { both: 'Siang & malam', lunch: 'Siang', dinner: 'Malam' };
 
 function closures_() {
-  return readTable_('tutup').rows.filter(r => isKey_(r.tanggal)).map(r => ({
+  return cached_('cls1', () => readTable_('tutup').rows.filter(r => isKey_(r.tanggal)).map(r => ({
     g: r.grup || r.tanggal, date: r.tanggal, meal: mealOf_(r.waktu), reason: r.alasan || 'Kantin tutup', by: r['dibuat oleh'] || ''
-  }));
+  })));
 }
 function blockOf_(closures, k, meal) {
   return closures.find(c => c.date === k && (c.meal === 'both' || c.meal === meal)) || null;
@@ -208,10 +212,9 @@ function regsAll_() {
 }
 
 function menus_(from, to) {
+  const all = cached_('menu1', () => readTable_('menu').rows.filter(r => isKey_(r.tanggal)).map(r => [r.tanggal, r.siang || '', r.malam || '']));
   const out = {};
-  readTable_('menu').rows.forEach(r => {
-    if (isKey_(r.tanggal) && r.tanggal >= from && r.tanggal <= to) out[r.tanggal] = { lunch: r.siang || '', dinner: r.malam || '' };
-  });
+  all.forEach(m => { if (m[0] >= from && m[0] <= to) out[m[0]] = { lunch: m[1], dinner: m[2] }; });
   return out;
 }
 
@@ -223,6 +226,88 @@ function feedbackAll_() {
 }
 
 function stamp_() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'); }
+
+// ---------------------------------------------------------------- caching
+// MEMO lives for one request (each google.script.run call is a fresh execution).
+// CacheService holds small tables and month-chunked registrations across requests.
+// Writes made through the app clear the affected keys; manual sheet edits show up
+// within CACHE_TTL seconds.
+const CACHE_TTL = 300;
+const REG_KEY = 'reg2:';
+const MEMO = {};
+function cache_() { return CacheService.getScriptCache(); }
+
+function cached_(key, build, fresh) {
+  if (!fresh && MEMO[key] !== undefined) return MEMO[key];
+  if (!fresh) { const hit = cache_().get(key); if (hit) return (MEMO[key] = JSON.parse(hit)); }
+  const val = build(), json = JSON.stringify(val);
+  if (json.length < 95000) cache_().put(key, json, CACHE_TTL);
+  return (MEMO[key] = val);
+}
+
+function forget_(keys, tables) {
+  keys.forEach(k => { delete MEMO[k]; });
+  (tables || []).forEach(t => { delete MEMO['t:' + t]; });
+  if (keys.length) cache_().removeAll(keys);
+}
+
+function monthsBetween_(from, to) {
+  const out = [];
+  for (let ym = from.slice(0, 7); ym <= to.slice(0, 7); ym = addMonths_(ym, 1)) out.push(ym);
+  return out;
+}
+
+/** Registrations (qty > 0) for the given months, served from cache when possible. */
+function regsMonths_(yms) {
+  const c = cache_(), out = [], need = [];
+  yms = yms.filter((y, i) => yms.indexOf(y) === i);
+  const meta = c.getAll(yms.map(y => REG_KEY + y));
+  const keys = [];
+  yms.forEach(y => { const n = meta[REG_KEY + y]; if (n == null) need.push(y); else for (let i = 0; i < Number(n); i++) keys.push(REG_KEY + y + ':' + i); });
+  const chunks = keys.length ? c.getAll(keys) : {};
+  yms.forEach(y => {
+    if (need.indexOf(y) >= 0) return;
+    const parts = [];
+    for (let i = 0; i < Number(meta[REG_KEY + y]); i++) {
+      const v = chunks[REG_KEY + y + ':' + i];
+      if (v == null) { need.push(y); return; }
+      parts.push(v);
+    }
+    parts.join('').split('\n').forEach(line => {
+      if (!line) return;
+      const f = line.split('|');
+      out.push({ date: f[0], nik: f[1], l: Number(f[2]), d: Number(f[3]) });
+    });
+  });
+  if (need.length) {
+    const gen = c.get('regGen'), byMonth = {};
+    need.forEach(y => { byMonth[y] = []; });
+    regsAll_().forEach(r => { const y = r.date.slice(0, 7); if (byMonth[y] && (r.l || r.d)) { byMonth[y].push(r); out.push(r); } });
+    if (c.get('regGen') === gen) {          // skip caching if a write happened meanwhile
+      const put = {};
+      need.forEach(y => {
+        const text = byMonth[y].map(r => r.date + '|' + r.nik + '|' + r.l + '|' + r.d).join('\n');
+        const n = Math.max(1, Math.ceil(text.length / 90000));
+        for (let i = 0; i < n; i++) put[REG_KEY + y + ':' + i] = text.slice(i * 90000, (i + 1) * 90000);
+        put[REG_KEY + y] = String(n);
+      });
+      c.putAll(put, CACHE_TTL);
+    }
+  }
+  return out;
+}
+
+function forgetRegs_(dates) {
+  const yms = monthsBetween_(dates.reduce((a, b) => a < b ? a : b), dates.reduce((a, b) => a > b ? a : b));
+  cache_().put('regGen', String(Date.now()), 21600);
+  forget_(yms.map(y => REG_KEY + y), ['pendaftaran']);
+}
+
+function groupByDate_(regs) {
+  const m = {};
+  regs.forEach(r => { (m[r.date] = m[r.date] || []).push(r); });
+  return m;
+}
 
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
@@ -247,14 +332,14 @@ function login_(nik, name) {
   const cache = CacheService.getScriptCache(), ck = 'fail:' + nik, fails = Number(cache.get(ck) || 0);
   if (fails >= 8) throw new Error('Terlalu banyak percobaan. Coba lagi 15 menit lagi.');
   const fail = msg => { cache.put(ck, String(fails + 1), 900); throw new Error(msg); };
-  const emp = employees_().find(e => e.nik === nik);
+  const emp = employees_().find(e => e.nik === nik) || employees_(true).find(e => e.nik === nik);
   if (!emp) fail('NIK tidak ditemukan. Hubungi People & HR.');
   if (!emp.active) throw new Error('NIK ini tidak aktif. Hubungi People & HR.');
   if (!nm) throw new Error('Nama wajib diisi.');
   if (emp.name.trim().toLowerCase().replace(/\s+/g, ' ') !== nm) fail('Nama tidak sesuai dengan NIK ini.');
   cache.remove(ck);
   const p = nik + '|' + (Date.now() + SESSION_DAYS * 864e5);
-  return { token: Utilities.base64EncodeWebSafe(p) + '.' + sign_(p) };
+  return { token: Utilities.base64EncodeWebSafe(p) + '.' + sign_(p), boot: bootstrap_(emp) };
 }
 
 function auth_(token, needAdmin) {
@@ -265,8 +350,9 @@ function auth_(token, needAdmin) {
   if (sign_(p) !== parts[1]) throw new Error('SESI_HABIS');
   const bits = p.split('|');
   if (Date.now() > Number(bits[1])) throw new Error('SESI_HABIS');
-  const emp = employees_().find(e => e.nik === bits[0] && e.active);
-  if (!emp) throw new Error('SESI_HABIS');
+  const find = list => list.find(e => e.nik === bits[0]);
+  const emp = find(employees_()) || find(employees_(true));
+  if (!emp || !emp.active) throw new Error('SESI_HABIS');
   if (needAdmin && !emp.admin) throw new Error('Halaman ini khusus admin.');
   return emp;
 }
@@ -282,7 +368,7 @@ function myRange_(now) {
 
 function myRegs_(nik, from, to) {
   const out = {};
-  regsAll_().forEach(r => {
+  regsMonths_(monthsBetween_(from, to)).forEach(r => {
     if (r.nik === nik && r.date >= from && r.date <= to && (r.l || r.d)) out[r.date] = { l: r.l, d: r.d };
   });
   return out;
@@ -319,23 +405,35 @@ function saveRegistrations_(me, changes) {
       d: blockOf_(closures, c.date, 'dinner') ? 0 : q(c.d)
     };
   });
-  const dates = Object.keys(clean);
+  const dates = Object.keys(clean), rg = myRange_(now), reg = {};
   withLock_(() => {
     const sh = sheet_('pendaftaran'), existing = {};
+    forget_([], ['pendaftaran']);
     regsAll_().forEach(r => { if (r.nik === me.nik) existing[r.date] = r; });
-    const ts = stamp_(), append = [];
+    const ts = stamp_(), append = [], upd = [];
     dates.forEach(k => {
       const v = clean[k], ex = existing[k];
       if (ex) {
-        if (ex.l !== v.l || ex.d !== v.d) sh.getRange(ex._row, 1, 1, 5).setValues([[k, me.nik, v.l, v.d, ts]]);
+        if (ex.l !== v.l || ex.d !== v.d) upd.push({ row: ex._row, vals: [k, me.nik, v.l, v.d, ts] });
       } else if (v.l || v.d) {
         append.push([k, me.nik, v.l, v.d, ts]);
       }
     });
+    // Write contiguous rows in one call each instead of one call per row.
+    upd.sort((a, b) => a.row - b.row);
+    for (let i = 0; i < upd.length;) {
+      let j = i;
+      while (j + 1 < upd.length && upd[j + 1].row === upd[j].row + 1) j++;
+      sh.getRange(upd[i].row, 1, j - i + 1, 5).setValues(upd.slice(i, j + 1).map(u => u.vals));
+      i = j + 1;
+    }
     if (append.length) sh.getRange(sh.getLastRow() + 1, 1, append.length, 5).setValues(append);
+    if (upd.length || append.length) forgetRegs_(dates);
+    // The caller's registrations after this save, built from what we already read.
+    Object.keys(existing).forEach(k => { const r = existing[k]; if (k >= rg.from && k <= rg.to && (r.l || r.d)) reg[k] = { l: r.l, d: r.d }; });
+    dates.forEach(k => { const v = clean[k]; if (k < rg.from || k > rg.to) return; if (v.l || v.d) reg[k] = v; else delete reg[k]; });
   });
-  const rg = myRange_(now);
-  return { reg: myRegs_(me.nik, rg.from, rg.to), saved: dates.length, skipped };
+  return { reg, saved: dates.length, skipped };
 }
 
 function saveFeedback_(me, p) {
@@ -346,16 +444,18 @@ function saveFeedback_(me, p) {
   if (!started) throw new Error('Penilaian dibuka setelah jam makan.');
   if (now.key > addDays_(p.date, FB_EDIT_DAYS)) throw new Error('Batas waktu penilaian sudah lewat.');
   if (blockOf_(closures_(), p.date, meal)) throw new Error('Kantin tutup pada waktu makan ini.');
-  const reg = regsAll_().find(r => r.nik === me.nik && r.date === p.date);
+  const reg = regsMonths_([p.date.slice(0, 7)]).find(r => r.nik === me.nik && r.date === p.date);
   if (!reg || !(meal === 'lunch' ? reg.l : reg.d)) throw new Error('Kamu tidak terdaftar pada waktu makan ini.');
   const tags = (p.tags || []).filter(t => FB_TAGS.indexOf(t) >= 0);
   const note = String(p.note || '').trim().slice(0, 500);
   const row = [p.date, meal === 'lunch' ? 'Siang' : 'Malam', me.nik, p.r, tags.join('; '), note, stamp_()];
   withLock_(() => {
     const sh = sheet_('masukan');
+    forget_([], ['masukan']);
     const ex = feedbackAll_().find(f => f.nik === me.nik && f.date === p.date && f.meal === meal);
     if (ex) sh.getRange(ex._row, 1, 1, row.length).setValues([row]);
     else sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+    forget_([], ['masukan']);
   });
   return { key: p.date + '-' + meal, fb: { r: p.r, tags, note } };
 }
@@ -379,18 +479,18 @@ function empMap_(emps) { const m = {}; emps.forEach(e => { m[e.nik] = e; }); ret
 
 function adminDay_(k) {
   if (!isKey_(k)) throw new Error('Tanggal tidak valid.');
-  const emps = employees_(), j = joinDay_(k, regsAll_(), closures_(), empMap_(emps));
+  const emps = employees_(), j = joinDay_(k, regsMonths_([k.slice(0, 7)]).filter(r => r.date === k), closures_(), empMap_(emps));
   return { date: k, rows: j.rows, lb: j.lb, db: j.db, stores: storesOf_(emps), settings: settings_(), now: now_() };
 }
 
 function adminMonth_(ym) {
   if (!/^\d{4}-\d{2}$/.test(ym || '')) throw new Error('Bulan tidak valid.');
-  const emps = employees_(), em = empMap_(emps), regs = regsAll_(), closures = closures_();
+  const emps = employees_(), em = empMap_(emps), byDate = groupByDate_(regsMonths_([ym])), closures = closures_();
   const stores = storesOf_(emps), split = {};
   stores.forEach(st => { split[st] = [0, 0, 0, 0]; });
   const days = [];
   for (let k = ym + '-01', end = monthEnd_(ym); k <= end; k = addDays_(k, 1)) {
-    const j = joinDay_(k, regs, closures, em);
+    const j = joinDay_(k, byDate[k] || [], closures, em);
     let l = 0, d = 0, pl = 0, pd = 0;
     j.rows.forEach(r => {
       l += r.l; d += r.d; if (r.l) pl++; if (r.d) pd++;
@@ -405,9 +505,9 @@ function adminMonth_(ym) {
 
 function adminMonthDetail_(ym) {
   if (!/^\d{4}-\d{2}$/.test(ym || '')) throw new Error('Bulan tidak valid.');
-  const em = empMap_(employees_()), regs = regsAll_(), closures = closures_(), out = [];
+  const em = empMap_(employees_()), byDate = groupByDate_(regsMonths_([ym])), closures = closures_(), out = [];
   for (let k = ym + '-01', end = monthEnd_(ym); k <= end; k = addDays_(k, 1)) {
-    joinDay_(k, regs, closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d]));
+    joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d]));
   }
   return out;
 }
@@ -449,7 +549,9 @@ function impactOf_(regs, dates, meal) {
 }
 
 function adminClosures_() {
-  const now = now_(), regs = regsAll_(), all = closures_(), groups = {};
+  const now = now_(), all = closures_(), groups = {};
+  const future = all.filter(c => c.date >= now.key).map(c => c.date.slice(0, 7));
+  const regs = future.length ? regsMonths_(future) : [];
   all.forEach(c => { (groups[c.g] = groups[c.g] || []).push(c); });
   const list = Object.keys(groups).map(g => {
     const cs = groups[g].sort((a, b) => a.date.localeCompare(b.date));
@@ -466,11 +568,13 @@ function addClosure_(me, p) {
   const reason = String(p.reason || '').trim().slice(0, 120) || 'Kantin tidak tersedia';
   withLock_(() => {
     const sh = sheet_('tutup');
+    forget_([], ['tutup']);
     readTable_('tutup').rows.filter(r => dates.indexOf(r.tanggal) >= 0).map(r => r._row)
       .sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
     const g = 'g' + Date.now(), ts = stamp_();
     const rows = dates.map(k => [g, k, MEAL_LABEL[meal], reason, me.name, ts]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+    forget_(['cls1'], ['tutup']);
   });
   return adminClosures_();
 }
@@ -478,8 +582,10 @@ function addClosure_(me, p) {
 function removeClosure_(g) {
   withLock_(() => {
     const sh = sheet_('tutup');
+    forget_([], ['tutup']);
     readTable_('tutup').rows.filter(r => (r.grup || r.tanggal) === g).map(r => r._row)
       .sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
+    forget_(['cls1'], ['tutup']);
   });
   return adminClosures_();
 }
@@ -495,6 +601,7 @@ function saveSettings_(p) {
       if (r) sh.getRange(r._row, 2).setValue(kv[1]);
       else sh.appendRow([kv[0], kv[1], '']);
     });
+    forget_(['set1'], ['pengaturan']);
   });
   return settings_();
 }
