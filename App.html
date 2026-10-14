@@ -565,9 +565,11 @@ function recapView() {
   return h + '</main>';
 }
 
+// Store rows A–Z by name, "Tanpa store" last.
+const byStoreName = (a, b) => (a === 'Tanpa store') - (b === 'Tanpa store') || a.localeCompare(b, 'id', { sensitivity: 'base', numeric: true });
 function storeAgg(stores, split) {
   const t = [0, 0, 0, 0];
-  const rows = stores.map(st => { const v = split[st] || [0, 0, 0, 0]; v.forEach((n, i) => { t[i] += n; }); return { store: st, v, total: v[0] + v[1] + v[2] + v[3] }; });
+  const rows = stores.slice().sort(byStoreName).map(st => { const v = split[st] || [0, 0, 0, 0]; v.forEach((n, i) => { t[i] += n; }); return { store: st, v, total: v[0] + v[1] + v[2] + v[3] }; });
   return { rows, t, total: t[0] + t[1] + t[2] + t[3] };
 }
 function splitOfRows(rows, stores) {
@@ -802,7 +804,9 @@ function printView() {
   const H = S.hr, day = curDay();
   if (!H.print || !day) return '';
   const s = daySums(day), agg = splitOfRows(day.rows, day.stores), ci = cutInfo(day.date, nowJ());
-  const cell = v => '<span class="r">' + nf(v) + '</span>';
+  // Kitchen sheet: non-zero portions highlighted (white collar green, blue collar amber), zeros shown as a faint dash.
+  const cell = (v, i) => '<span class="r">' + (v ? '<b class="pv ' + (i < 2 ? 'w' : 'b') + '">' + nf(v) + '</b>' : '<span class="pz">–</span>') + '</span>';
+  const tot = v => '<span class="r">' + (v ? '<b class="pv t">' + nf(v) + '</b>' : '<span class="pz">–</span>') + '</span>';
   return '<div class="print-wrap"><div class="print-col"><div class="print-a"><button class="btn" data-a="closePrint">Tutup</button><button class="btn-primary sm" data-a="doPrint">Cetak</button></div>' +
     '<div class="sheet" id="kprint"><div class="sheet-h"><div class="l"><span style="display:flex;align-items:center;gap:10px;margin-bottom:6px">' + logoFull(36) + '<small>Program Makan</small></span><b>Kebutuhan dapur</b><span>' + fmtLong(day.date) + '</span></div>' +
     '<div class="rt"><b>' + ci.short + '</b><span>Dicetak ' + esc(H.printAt) + '</span></div></div>' +
@@ -812,8 +816,8 @@ function printView() {
     '<div class="box"><small>Total porsi</small><b>' + nf(s.l + s.d) + '</b><span>' + s.n + ' karyawan</span></div></div>' +
     '<div style="display:flex;flex-direction:column"><div class="pt g"><i></i><span>White collar</span><span>Blue collar</span><i></i></div>' +
     '<div class="pt h"><span>Store</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
-    agg.rows.map(r => '<div class="pt b"><span style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + '<span class="r" style="font-weight:800">' + nf(r.total) + '</span></div>').join('') +
-    '<div class="pt t"><span>Total</span>' + agg.t.map(cell).join('') + '<span class="r">' + nf(agg.total) + '</span></div></div></div></div></div>';
+    agg.rows.map(r => '<div class="pt b' + (r.total ? '' : ' zero') + '"><span style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + tot(r.total) + '</div>').join('') +
+    '<div class="pt t"><span>Total</span>' + agg.t.map(cell).join('') + tot(agg.total) + '</div></div></div></div></div>';
 }
 
 // ------------------------------------------------------------ admin: closures
