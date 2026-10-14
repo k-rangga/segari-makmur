@@ -22,10 +22,11 @@ const SHEETS = {
   tutup: ['Grup', 'Tanggal', 'Waktu', 'Alasan', 'Dibuat oleh', 'Dibuat pada'],
   masukan: ['Tanggal', 'Waktu', 'NIK', 'Nilai', 'Tag', 'Catatan', 'Diperbarui'],
   menu: ['Tanggal', 'Siang', 'Malam'],
-  pengaturan: ['Kunci', 'Nilai', 'Keterangan']
+  pengaturan: ['Kunci', 'Nilai', 'Keterangan'],
+  voucher: ['Kode', 'Nilai', 'Berlaku sampai', 'Dipakai oleh', 'Dipakai pada', 'Potongan', 'Rincian', 'Diunggah pada', 'Diunggah oleh']
 };
 // Columns kept as plain text so dates and NIKs are never auto-converted.
-const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masukan: ['A', 'C'], menu: ['A'], pengaturan: ['B'] };
+const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masukan: ['A', 'C'], menu: ['A'], pengaturan: ['B'], voucher: ['A', 'C', 'D', 'G'] };
 const DEFAULT_SETTINGS = [
   ['batas_hari', '3', 'Pendaftaran minggu depan ditutup N hari sebelum Senin (3 = Jumat, 1 = Minggu)'],
   ['batas_jam', '23:59', 'Jam batas pendaftaran (HH:MM)'],
@@ -57,7 +58,11 @@ function api(action, token, payload) {
 const ACTIONS = {
   login: (_, p) => login_(p.nik, p.name),
   bootstrap: token => bootstrap_(auth_(token)),
-  saveRegistrations: (token, p) => saveRegistrations_(auth_(token), p.changes || []),
+  saveRegistrations: (token, p) => saveRegistrations_(auth_(token), p.changes || [], p.voucher),
+  checkVoucher: (token, p) => { auth_(token); return checkVoucher_(p.code); },
+  adminVouchers: token => { auth_(token, true); return adminVouchers_(); },
+  uploadVouchers: (token, p) => uploadVouchers_(auth_(token, true), p.rows || []),
+  deleteVoucher: (token, p) => { auth_(token, true); return deleteVoucher_(p.code); },
   saveFeedback: (token, p) => saveFeedback_(auth_(token), p),
   adminDay: (token, p) => { auth_(token, true); return adminDay_(p.date); },
   adminMonth: (token, p) => { auth_(token, true); return adminMonth_(p.ym); },
@@ -391,11 +396,12 @@ function bootstrap_(me) {
     reg: myRegs_(me.nik, rg.from, rg.to),
     closures: closures_().filter(c => c.date >= rg.from),
     menus: menus_(addDays_(now.key, -14), rg.to),
-    fb
+    fb,
+    vouchers: myVouchers_(me.nik, rg.from, rg.to)
   };
 }
 
-function saveRegistrations_(me, changes) {
+function saveRegistrations_(me, changes, code) {
   if (!Array.isArray(changes) || changes.length > 400) throw new Error('Data pendaftaran tidak valid.');
   const s = settings_(), now = now_(), closures = closures_();
   let skipped = 0;
@@ -410,10 +416,13 @@ function saveRegistrations_(me, changes) {
     };
   });
   const dates = Object.keys(clean), rg = myRange_(now), reg = {};
+  let used = null;
   withLock_(() => {
     const sh = sheet_('pendaftaran'), existing = {};
     forget_([], ['pendaftaran']);
     regsAll_().forEach(r => { if (r.nik === me.nik) existing[r.date] = r; });
+    // Voucher: validated and priced before anything is written, so a bad code saves nothing.
+    const redeem = code ? priceVoucher_(code, dates.sort().map(k => ({ date: k, ex: existing[k], v: clean[k] }))) : null;
     const ts = stamp_(), append = [], upd = [];
     dates.forEach(k => {
       const v = clean[k], ex = existing[k];
@@ -433,11 +442,16 @@ function saveRegistrations_(me, changes) {
     }
     if (append.length) sh.getRange(sh.getLastRow() + 1, 1, append.length, 5).setValues(append);
     if (upd.length || append.length) forgetRegs_(dates);
+    if (redeem) {
+      sheet_('voucher').getRange(redeem.v._row, 4, 1, 4).setValues([[me.nik, ts, redeem.discount, splitText_(redeem.split)]]);
+      forget_(['vch1'], ['voucher']);
+      used = { code: redeem.v.code, discount: redeem.discount, split: redeem.split, at: ts };
+    }
     // The caller's registrations after this save, built from what we already read.
     Object.keys(existing).forEach(k => { const r = existing[k]; if (k >= rg.from && k <= rg.to && (r.l || r.d)) reg[k] = { l: r.l, d: r.d }; });
     dates.forEach(k => { const v = clean[k]; if (k < rg.from || k > rg.to) return; if (v.l || v.d) reg[k] = v; else delete reg[k]; });
   });
-  return { reg, saved: dates.length, skipped };
+  return { reg, saved: dates.length, skipped, voucher: used };
 }
 
 function saveFeedback_(me, p) {
@@ -462,6 +476,132 @@ function saveFeedback_(me, p) {
     forget_([], ['masukan']);
   });
   return { key: p.date + '-' + meal, fb: { r: p.r, tags, note } };
+}
+
+// ---------------------------------------------------------------- vouchers
+// Single-use codes with a fixed Rupiah value. A code is redeemed in one submission and takes
+// that submission's newly added portions off the salary deduction, capped at their cost.
+// `Rincian` records how the discount splits over months ("2026-10:5000;2026-11:5000").
+
+const normCode_ = v => String(v || '').trim().toUpperCase().replace(/\s+/g, '');
+const CODE_RE = /^[A-Z0-9_-]{3,32}$/;
+const MAX_VOUCHER = 10000000;
+
+function splitText_(m) { return Object.keys(m).sort().map(k => k + ':' + m[k]).join(';'); }
+function splitParse_(t) {
+  const m = {};
+  String(t || '').split(';').forEach(p => { const kv = p.split(':'); if (/^\d{4}-\d{2}$/.test(kv[0]) && Number(kv[1]) > 0) m[kv[0]] = Number(kv[1]); });
+  return m;
+}
+
+function vouchers_(fresh) {
+  return cached_('vch1', () => readTable_('voucher').rows.filter(r => r.kode).map(r => ({
+    _row: r._row, code: normCode_(r.kode), value: parseInt(String(r.nilai).replace(/\D/g, ''), 10) || 0,
+    until: isKey_(r['berlaku sampai']) ? r['berlaku sampai'] : '', usedBy: String(r['dipakai oleh'] || '').replace(/\s/g, ''),
+    usedAt: r['dipakai pada'] || '', discount: parseInt(r.potongan, 10) || 0, split: splitParse_(r.rincian),
+    uploadedAt: r['diunggah pada'] || '', uploadedBy: r['diunggah oleh'] || ''
+  })), fresh);
+}
+function voucherState_(v, today) { return v.usedBy ? 'used' : v.until && v.until < today ? 'expired' : 'available'; }
+
+function findVoucher_(code, fresh) {
+  const c = normCode_(code);
+  if (!CODE_RE.test(c)) throw new Error('Kode voucher tidak valid.');
+  const v = vouchers_(fresh).find(x => x.code === c);
+  if (!v) throw new Error('Kode voucher tidak ditemukan.');
+  const st = voucherState_(v, now_().key);
+  if (st === 'used') throw new Error('Voucher ini sudah dipakai.');
+  if (st === 'expired') throw new Error('Voucher ini sudah kedaluwarsa.');
+  if (v.value <= 0) throw new Error('Voucher ini tidak punya nilai.');
+  return v;
+}
+
+function checkVoucher_(code) {
+  const v = findVoucher_(code);
+  return { code: v.code, value: v.value, until: v.until };
+}
+
+/** Prices a voucher against a submission ({date, ex, v} per changed date). Call inside the lock. */
+function priceVoucher_(code, rows) {
+  forget_(['vch1'], ['voucher']);
+  const v = findVoucher_(code, true), added = {};
+  rows.forEach(r => {
+    const ex = r.ex || { l: 0, d: 0 };
+    const n = Math.max(0, r.v.l - ex.l) + Math.max(0, r.v.d - ex.d);
+    if (n) added[r.date.slice(0, 7)] = (added[r.date.slice(0, 7)] || 0) + n * PRICE;
+  });
+  const total = Object.keys(added).reduce((a, k) => a + added[k], 0);
+  if (!total) throw new Error('Voucher hanya bisa dipakai untuk pilihan baru.');
+  let left = Math.min(v.value, total);
+  const split = {};
+  Object.keys(added).sort().forEach(m => { const take = Math.min(left, added[m]); if (take) { split[m] = take; left -= take; } });
+  return { v, split, discount: Math.min(v.value, total) };
+}
+
+function myVouchers_(nik, from, to) {
+  const months = monthsBetween_(from, to);
+  return vouchers_().filter(v => v.usedBy === nik && Object.keys(v.split).some(m => months.indexOf(m) >= 0))
+    .map(v => ({ code: v.code, discount: v.discount, split: v.split, at: v.usedAt }));
+}
+
+function adminVouchers_() {
+  const today = now_().key, em = empMap_(employees_());
+  const list = vouchers_().map(v => {
+    const e = em[v.usedBy];
+    return { code: v.code, value: v.value, until: v.until, state: voucherState_(v, today), usedBy: v.usedBy,
+      usedName: v.usedBy ? (e ? e.name : '(NIK tidak dikenal)') : '', usedAt: v.usedAt, discount: v.discount,
+      split: splitText_(v.split), uploadedAt: v.uploadedAt };
+  });
+  return { list, now: now_() };
+}
+
+function parseValue_(v) { const n = parseInt(String(v == null ? '' : v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+function parseDate_(v) {
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return '';
+  if (isKey_(t)) return t;
+  const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (m) { const k = m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); if (isKey_(k)) return k; }
+  return null;
+}
+
+function uploadVouchers_(me, rows) {
+  if (!Array.isArray(rows) || !rows.length) throw new Error('Tidak ada voucher untuk diunggah.');
+  if (rows.length > 2000) throw new Error('Maksimal 2.000 voucher per unggahan.');
+  let added = 0;
+  const skipped = [];
+  withLock_(() => {
+    forget_(['vch1'], ['voucher']);
+    const have = {}, seen = {}, out = [], ts = stamp_();
+    vouchers_(true).forEach(v => { have[v.code] = true; });
+    rows.forEach(r => {
+      const code = normCode_(r && r.code), value = parseValue_(r && r.value), until = parseDate_(r && r.until);
+      const bad = !CODE_RE.test(code) ? 'Kode tidak valid' : !(value > 0 && value <= MAX_VOUCHER) ? 'Nilai tidak valid' : until === null ? 'Tanggal tidak valid'
+        : seen[code] ? 'Duplikat di file' : have[code] ? 'Sudah ada' : '';
+      if (bad) { skipped.push({ code: code || String(r && r.code || ''), reason: bad }); return; }
+      seen[code] = true;
+      out.push([code, value, until, '', '', '', '', ts, me.name]);
+    });
+    if (out.length) {
+      const sh = sheet_('voucher');
+      sh.getRange(sh.getLastRow() + 1, 1, out.length, out[0].length).setValues(out);
+      forget_(['vch1'], ['voucher']);
+    }
+    added = out.length;
+  });
+  return Object.assign(adminVouchers_(), { added, skipped });
+}
+
+function deleteVoucher_(code) {
+  withLock_(() => {
+    forget_(['vch1'], ['voucher']);
+    const v = vouchers_(true).find(x => x.code === normCode_(code));
+    if (!v) throw new Error('Kode voucher tidak ditemukan.');
+    if (v.usedBy) throw new Error('Voucher yang sudah dipakai tidak bisa dihapus.');
+    sheet_('voucher').deleteRow(v._row);
+    forget_(['vch1'], ['voucher']);
+  });
+  return adminVouchers_();
 }
 
 // ---------------------------------------------------------------- admin

@@ -23,6 +23,7 @@ Spreadsheet ID is `SPREADSHEET_ID` in `Code.js`. Missing tabs and headers are cr
 | `tutup` | Grup, Tanggal, Waktu, Alasan, Dibuat oleh, Dibuat pada | Canteen closures. Registrations on closed meals are ignored (kept, so reopening restores them). |
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | Feedback. Kitchen CSV export is anonymous; admins see names. |
 | `menu` | Tanggal, Siang, Malam | Optional menu names shown in feedback prompts. |
+| `voucher` | Kode, Nilai, Berlaku sampai, Dipakai oleh, Dipakai pada, Potongan, Rincian, Diunggah pada, Diunggah oleh | Single-use discount codes (fixed Rupiah). Admins bulk-upload them on the **Voucher** page (CSV `kode,nilai,berlaku_sampai`). An employee enters a code when submitting; it takes that submission's new portions off the deduction, capped at their cost, and records the split per month in Rincian. |
 | `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` (3 = Friday before the week), `batas_jam` (23:59), `maks_porsi` (3). |
 
 Login: employees type their NIK and full name exactly as in `employee` (case and extra spaces ignored). Sessions last 30 days. 8 wrong attempts lock that NIK for 15 minutes.

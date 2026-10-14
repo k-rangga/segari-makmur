@@ -58,6 +58,7 @@ const svg = (size, d, sw) => '<svg width="' + size + '" height="' + size + '" vi
 const ICON = {
   cal: s => svg(s, '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path>'),
   chart: s => svg(s, '<path d="M5 20V11M12 20V5M19 20v-6"></path>'),
+  ticket: s => svg(s, '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z"></path><path d="M14 6v2M14 11v2M14 16v2"></path>'),
   calx: s => svg(s, '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4M10 13.5l4 4M14 13.5l-4 4"></path>'),
   out: s => svg(s, '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 8l-4 4 4 4M6 12h10"></path>'),
   left: s => svg(s, '<path d="M15 6l-6 6 6 6"></path>', 2),
@@ -76,6 +77,8 @@ const S = {
   hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
+  myVouchers: [], voucher: null, vcode: '', vchecking: false,
+  vc: { data: null, text: '', fileName: '', q: '', status: 'all', busy: false },
   ms: null, loading: {}, loadErr: {}, toast: null
 };
 
@@ -158,7 +161,7 @@ function renderNow() {
 function view() {
   if (S.booting) return '<div class="boot">Memuat…</div>';
   if (!S.user) return loginView() + toastView();
-  const main = S.view === 'recap' && S.user.admin ? recapView() : S.view === 'closure' && S.user.admin ? closureView() : empView();
+  const main = !S.user.admin || S.view === 'meal' ? empView() : S.view === 'recap' ? recapView() : S.view === 'closure' ? closureView() : S.view === 'voucher' ? voucherView() : empView();
   return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + fbModalView() + printView() + toastView();
 }
 
@@ -211,6 +214,7 @@ function signOut(msg) {
   S.token = null; ls.set('pm-token', null);
   S.user = null; S.saved = {}; S.sel = {}; S.view = 'meal'; S.pop = null; S.fbDraft = null;
   ls.set('pm-boot', null); S.bootData = null;
+  S.voucher = null; S.vcode = ''; S.myVouchers = []; S.vc.data = null;
   S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
   render();
 }
@@ -222,7 +226,7 @@ function applyBoot(d, stale, skew) {
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
-    S.view = d.user.admin && ['recap', 'closure'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
+    S.view = d.user.admin && ['recap', 'closure', 'voucher'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
     S.saved = clone(d.reg); S.sel = clone(d.reg); S.mi = 0;
     const now = nowJ();
     S.hr.date = now.key; S.hr.yms = [now.key.slice(0, 7)];
@@ -233,6 +237,7 @@ function applyBoot(d, stale, skew) {
     S.saved = clone(d.reg); S.sel = Object.assign(clone(d.reg), keep);
   }
   S.closures = d.closures; S.menus = d.menus;
+  if (!S.syncing) S.myVouchers = d.vouchers || [];
   if (!S.syncing) S.fb = d.fb;
   S.bootData = d; S.booting = false;
   if (!stale) {
@@ -251,7 +256,7 @@ async function boot() { applyBoot(await call('bootstrap')); }
 // ------------------------------------------------------------ sidebar
 function sideView() {
   const u = S.user, ini = esc(initials(u.name)), mini = S.navClosed || window.innerWidth < 760;
-  const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx]] : []);
+  const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx], ['voucher', 'Voucher', ICON.ticket]] : []);
   const role = (u.admin ? 'Admin' : (u.dept || 'Karyawan')) + ' · NIK ' + u.nik;
   if (mini) {
     return '<aside class="side mini"><div class="logo">' + logoMark(40) + '</div><nav class="nav">' +
@@ -429,17 +434,47 @@ function cellView(k, ym, now) {
   return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips + '</div>';
 }
 
+// Cost of newly added portions per month in the pending changes, and how a voucher splits over it.
+function addedByMonth(pend) {
+  const m = {};
+  pend.forEach(c => {
+    const n = Math.max(0, c.l - savedQ(c.date, 'l')) + Math.max(0, c.d - savedQ(c.date, 'd'));
+    if (n) m[c.date.slice(0, 7)] = (m[c.date.slice(0, 7)] || 0) + n * S.price;
+  });
+  return m;
+}
+function splitVoucher(value, added) {
+  let left = value;
+  const out = {};
+  Object.keys(added).sort().forEach(k => { const t = Math.min(left, added[k]); if (t) { out[k] = t; left -= t; } });
+  return out;
+}
+const sumObj = o => Object.keys(o).reduce((a, k) => a + o[k], 0);
+const voucherFor = ym => S.myVouchers.reduce((a, v) => a + (v.split[ym] || 0), 0);
+
+function voucherBox(pend) {
+  if (S.voucher) {
+    const d = Math.min(S.voucher.value, sumObj(addedByMonth(pend)));
+    return '<span class="vchip" title="Voucher ' + esc(S.voucher.code) + ' · nilai ' + rp(S.voucher.value) + '">' + ICON.ticket(16) + esc(S.voucher.code) + ' · −' + rp(d) +
+      '<button data-a="vRemove" aria-label="Hapus voucher" title="Hapus voucher">×</button></span>';
+  }
+  return '<div class="vbox"><input class="vinput" data-f="vcode" data-in="vcode" value="' + esc(S.vcode) + '" placeholder="Kode voucher" maxlength="32" autocomplete="off" spellcheck="false" aria-label="Kode voucher">' +
+    '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
+}
+
 function pendingBarView(pend, now) {
   if (!pend.length) return '';
   const n = pend.reduce((a, c) => a + c.n, 0), delta = pend.reduce((a, c) => a + c.delta, 0), allAdd = pend.every(c => c.add);
   const c = cutoffOf(pend[0].date), m = minsUntil(c, now);
   const sub = m <= 24 * 60 ? 'Kirim sebelum ' + cutLabel(c) + ' — setelah itu minggu ' + weekRange(addDays(pend[0].date, -dow(pend[0].date))) + ' terkunci dan perubahan ini hilang.' : 'Pilihanmu belum tercatat sampai kamu tekan Kirim pendaftaran.';
-  return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + '</b><span>' + sub + '</span></div>' +
-    '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div>';
+  const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0;
+  const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
+  return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
+    voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div>';
 }
 
 function summaryView(ym, now, pend) {
-  const st = monthStatus(ym, now, pend), t = st.t, cur = now.key.slice(0, 7);
+  const st = monthStatus(ym, now, pend), t = st.t, cur = now.key.slice(0, 7), mv = voucherFor(ym);
   let soFar = 0;
   daysOf(cur + '-01', now.key).forEach(k => {
     if (!blockOf(S.closures, k, 'lunch')) soFar += savedQ(k, 'l');
@@ -447,13 +482,14 @@ function summaryView(ym, now, pend) {
   });
   return '<div class="sum-card"><div class="sum-h"><b>' + monthName(ym) + ' ' + ym.slice(0, 4) + '</b><span class="pill sm ' + st.cls + '">' + st.pill + '</span></div>' +
     '<div class="sum-rows"><div class="r2"><span>' + swatch('lunch') + 'Makan siang</span><span>' + t.l + ' porsi</span></div><div class="r2"><span>' + swatch('dinner') + 'Makan malam</span><span style="color:' + MC.dinner.x + ';font-weight:600">' + t.d + ' porsi</span></div>' +
-    '<div class="r2"><span>Kantin tutup</span><span>' + t.closed + ' hari</span></div><div class="div"></div>' +
-    '<div class="r2" style="align-items:baseline"><span>Potongan gaji</span><span class="sum-total">' + rp((t.l + t.d) * S.price) + '</span></div></div>' +
+    '<div class="r2"><span>Kantin tutup</span><span>' + t.closed + ' hari</span></div>' +
+    (mv ? '<div class="r2"><span>' + ICON.ticket(13) + ' Voucher</span><span style="color:#1f6b43;font-weight:600">−' + rp(mv) + '</span></div>' : '') + '<div class="div"></div>' +
+    '<div class="r2" style="align-items:baseline"><span>Potongan gaji</span><span class="sum-total">' + rp(Math.max(0, (t.l + t.d) * S.price - mv)) + '</span></div></div>' +
     '<span class="note">' + (S.syncing ? 'Menyimpan ke server…' : pend.length ? 'Termasuk pilihan yang belum dikirim.' : 'Semua pilihan sudah terkirim.') + '</span><div class="div" style="margin:0"></div>' +
     '<div class="sum-rows"><span style="font-size:14px;font-weight:700">' + monthName(cur) + ' sejauh ini</span>' +
     '<div class="r2"><span>Porsi terdaftar</span><span>' + soFar + ' porsi</span></div>' +
     '<div class="r2"><span>Potongan sejauh ini</span><span style="font-weight:700">' + rp(soFar * S.price) + '</span></div>' +
-    '<span class="note">Dipotong dari gaji akhir bulan.</span></div></div>';
+    '<span class="note">Dipotong dari gaji akhir bulan' + (voucherFor(cur) ? ', setelah voucher.' : '.') + '</span></div></div>';
 }
 
 function popView() {
@@ -805,6 +841,81 @@ function closureView() {
   return h + '</main>';
 }
 
+// ------------------------------------------------------------ admin: vouchers
+const VC_COLS = '150px 110px 120px 110px minmax(0,1.2fr) 150px 100px 64px';
+const VC_STATE = { available: ['Tersedia', 'buka'], used: ['Terpakai', 'libur'], expired: ['Kedaluwarsa', 'tutup'] };
+const CODE_RE = /^[A-Z0-9_-]{3,32}$/;
+function parseRp(v) { const n = parseInt(String(v == null ? '' : v).replace(/\D/g, ''), 10); return isNaN(n) ? 0 : n; }
+function parseDay(v) {
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t) && t2k(k2t(t)) === t) return t;
+  const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (m) { const k = m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); if (t2k(k2t(k)) === k) return k; }
+  return null;
+}
+// One voucher per line: kode, nilai, berlaku_sampai (comma, semicolon or tab). A header line is skipped.
+function parseVouchers(text) {
+  const have = {}, seen = {};
+  ((S.vc.data && S.vc.data.list) || []).forEach(v => { have[v.code] = true; });
+  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length && /[a-z]/i.test((lines[0].split(/[,;\t]/)[1] || '')) && !/\d/.test(lines[0].split(/[,;\t]/)[1] || '')) lines.shift();
+  return lines.map(l => {
+    const c = l.split(/[,;\t]/).map(x => x.trim().replace(/^"|"$/g, ''));
+    const code = (c[0] || '').toUpperCase().replace(/\s+/g, ''), value = parseRp(c[1]), until = parseDay(c[2]);
+    const err = !CODE_RE.test(code) ? 'Kode tidak valid' : !(value > 0 && value <= 10000000) ? 'Nilai tidak valid' : until === null ? 'Tanggal tidak valid'
+      : seen[code] ? 'Duplikat di file' : have[code] ? 'Sudah ada' : '';
+    if (!err) seen[code] = true;
+    return { code: code || c[0] || '', value, until: until || '', err };
+  });
+}
+
+function voucherView() {
+  const V = S.vc, D = V.data, today = nowJ().key;
+  const rows = V.text.trim() ? parseVouchers(V.text) : [], ok = rows.filter(r => !r.err);
+  let h = '<main><div class="ph"><h1>Voucher</h1><span>Unggah kode voucher potongan. Setiap kode bernilai Rupiah tetap dan hanya bisa dipakai sekali oleh satu karyawan.</span></div>';
+  h += '<div class="vc-up"><div class="vc-h"><b>Unggah voucher</b><button class="link" data-a="vcTemplate">Unduh contoh CSV</button></div>' +
+    '<span class="muted" style="font-size:13px">Satu voucher per baris: <b>kode, nilai, berlaku_sampai</b>. Nilai dalam Rupiah; tanggal opsional (YYYY-MM-DD atau DD/MM/YYYY). Pilih file CSV atau tempel daftarnya.</span>' +
+    '<div class="vc-row"><label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">Pilih file CSV<input type="file" accept=".csv,text/csv,text/plain" data-ch="vcFile" style="display:none"></label>' +
+    '<span class="muted" style="font-size:13px">' + esc(V.fileName || 'Belum ada file dipilih') + '</span></div>' +
+    '<textarea class="input" rows="5" data-f="vcText" data-in="vcText" placeholder="MAKAN10K,10000,2026-12-31&#10;HEMAT5K,5000">' + esc(V.text) + '</textarea>';
+  if (rows.length) {
+    h += '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px"><span><b>' + nf(ok.length) + '</b> siap diunggah</span>' + (rows.length - ok.length ? '<span class="warn"><b>' + nf(rows.length - ok.length) + '</b> bermasalah, akan dilewati</span>' : '') + '</div>' +
+      '<div class="tbl x"><div style="min-width:520px"><div class="tr th" style="grid-template-columns:minmax(0,1.2fr) 120px 130px 150px"><span>Kode</span><span class="r">Nilai</span><span>Berlaku sampai</span><span>Status</span></div>' +
+      '<div class="tbody" style="max-height:260px" data-keep="vcprev">' + rows.slice(0, 300).map(r => '<div class="tr" style="grid-template-columns:minmax(0,1.2fr) 120px 130px 150px;font-size:14px">' +
+        '<span class="ell tnum" style="font-weight:600">' + esc(r.code) + '</span><span class="r">' + (r.value ? rp(r.value) : '–') + '</span><span>' + (r.until ? fmt(r.until) : '–') + '</span>' +
+        (r.err ? '<span class="pill tutup">' + r.err + '</span>' : '<span class="pill buka">Siap</span>') + '</div>').join('') +
+      (rows.length > 300 ? '<div class="empty">+' + nf(rows.length - 300) + ' baris lagi</div>' : '') + '</div></div></div>';
+  }
+  h += '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn lg" data-a="vcClear"' + (V.text ? '' : ' disabled') + '>Kosongkan</button>' +
+    '<button class="btn-primary" data-a="vcUpload"' + (!ok.length || V.busy ? ' disabled' : '') + '>' + (V.busy ? 'Menyimpan…' : 'Simpan ' + nf(ok.length) + ' voucher') + '</button></div></div>';
+  if (!D) return h + skelView(6) + '</main>';
+  const L = D.list, by = st => L.filter(v => v.state === st);
+  h += '<div class="stats">' + statView('Total voucher', nf(L.length), 'Semua kode yang diunggah') +
+    statView('Tersedia', nf(by('available').length), rp(by('available').reduce((a, v) => a + v.value, 0)) + ' nilai belum dipakai') +
+    statView('Terpakai', nf(by('used').length), rp(by('used').reduce((a, v) => a + v.discount, 0)) + ' potongan diberikan') +
+    statView('Kedaluwarsa', nf(by('expired').length), 'Lewat tanggal berlaku') + '</div>';
+  const q = V.q.trim().toUpperCase();
+  const list = L.filter(v => (V.status === 'all' || v.state === V.status) && (!q || (v.code + ' ' + v.usedName + ' ' + v.usedBy).toUpperCase().indexOf(q) >= 0))
+    .sort((a, b) => String(b.usedAt || b.uploadedAt).localeCompare(String(a.usedAt || a.uploadedAt)) || a.code.localeCompare(b.code));
+  h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Daftar voucher</b><span>' + nf(list.length) + ' voucher</span></div>' +
+    '<select class="input" style="width:170px" data-ch="vcStatus">' + [['all', 'Semua status'], ['available', 'Tersedia'], ['used', 'Terpakai'], ['expired', 'Kedaluwarsa']].map(o => '<option value="' + o[0] + '"' + (V.status === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+    '<input class="input" style="width:220px" data-f="vcq" data-in="vcq" value="' + esc(V.q) + '" placeholder="Cari kode atau nama">' +
+    '<button class="btn" data-a="vcExport">Ekspor voucher</button></div>' +
+    '<div style="overflow-x:auto"><div style="min-width:920px"><div class="tr th" style="grid-template-columns:' + VC_COLS + '"><span>Kode</span><span class="r">Nilai</span><span>Berlaku sampai</span><span>Status</span><span>Dipakai oleh</span><span>Dipakai pada</span><span class="r">Potongan</span><span></span></div>' +
+    '<div class="tbody" data-keep="vclist">' + list.slice(0, 500).map(v => {
+      const st = VC_STATE[v.state];
+      return '<div class="tr hov" style="grid-template-columns:' + VC_COLS + ';font-size:14px"><span class="ell tnum" style="font-weight:600">' + esc(v.code) + '</span><span class="r">' + rp(v.value) + '</span>' +
+        '<span style="color:' + (v.state === 'expired' ? '#8a5a0b' : '#4a524d') + '">' + (v.until ? fmt(v.until) : '–') + '</span><span class="pill ' + st[1] + '">' + st[0] + '</span>' +
+        '<span class="ell">' + (v.usedBy ? esc(v.usedName) + ' <span class="muted tnum">· ' + esc(v.usedBy) + '</span>' : '<span style="color:#c5cbc6">–</span>') + '</span>' +
+        '<span class="tnum" style="color:#4a524d">' + (v.usedAt ? esc(String(v.usedAt).slice(0, 16)) : '<span style="color:#c5cbc6">–</span>') + '</span>' +
+        '<span class="r" style="font-weight:' + (v.discount ? 700 : 400) + '">' + (v.discount ? rp(v.discount) : '<span style="color:#c5cbc6">–</span>') + '</span>' +
+        (v.state === 'used' ? '<span></span>' : '<button class="link muted" style="justify-self:end;font-size:12px" data-a="vcDelete" data-c="' + esc(v.code) + '">Hapus</button>') + '</div>';
+    }).join('') + (list.length > 500 ? '<div class="empty">Menampilkan 500 dari ' + nf(list.length) + ' · persempit pencarian</div>' : '') +
+    (list.length ? '' : '<div class="empty">' + (L.length ? 'Tidak ada voucher yang cocok.' : 'Belum ada voucher. Unggah daftar kode di atas.') + '</div>') + '</div></div></div></div>';
+  return h + '</main>';
+}
+
 // ------------------------------------------------------------ data loading
 function load(key, action, payload, apply) {
   if (S.loading[key] || Date.now() - (S.loadErr[key] || 0) < 15000) return;
@@ -837,6 +948,7 @@ function ensureData() {
     if (H.mode === 'month') selMonths().forEach(y => { if (!fresh(H.monthCache[y], 120000)) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
     if (H.mode === 'fb' && !fresh(H.fb, 60000)) load('fb', 'adminFeedback', {}, d => { H.fb = d; });
   }
+  if (S.view === 'voucher' && !fresh(S.vc.data, 30000)) load('vouchers', 'adminVouchers', {}, d => { S.vc.data = d; });
   if (S.view === 'closure') {
     if (!fresh(C.data, 30000)) load('closures', 'adminClosures', {}, d => { C.data = d; });
     const ks = closureRange(), key = ks.join(',') + '|' + C.meal;
@@ -891,21 +1003,38 @@ const A = {
   toggleWknd() { S.hideWknd = !S.hideWknd; ls.set('pm-hideWknd', S.hideWknd ? '1' : '0'); render(); },
   fillWeek(el) { const now = nowJ(), ym = S.months[S.mi]; daysOf(el.dataset.ws, addDays(el.dataset.ws, 6)).filter(k => k.slice(0, 7) === ym).forEach(k => fillDay(k, 'both', now)); render(); },
   clearWeek(el) { const ws = el.dataset.ws, ym = S.months[S.mi]; clearDays(daysOf(ws, addDays(ws, 6)).filter(k => k.slice(0, 7) === ym), 'Minggu ' + weekRange(ws)); },
-  discard() { S.sel = clone(S.saved); S.pop = null; flash('Perubahan dibatalkan'); },
+  discard() { S.sel = clone(S.saved); S.pop = null; S.voucher = null; S.vcode = ''; flash('Perubahan dibatalkan'); },
+  async vApply() {
+    const code = S.vcode.trim().toUpperCase();
+    if (!code) return flash('Masukkan kode voucher dulu.');
+    S.vchecking = true; render();
+    try {
+      S.voucher = await call('checkVoucher', { code });
+      S.vcode = '';
+      flash('Voucher ' + S.voucher.code + ' · nilai ' + rp(S.voucher.value));
+    } catch (e) { if (isSession(e)) return fail(e); flash(errMsg(e)); }
+    S.vchecking = false; render();
+  },
+  vRemove() { S.voucher = null; render(); },
   // Optimistic: the calendar shows the choices as registered at once; the server call runs in the
   // background (one at a time). On failure the affected days roll back to pending with "Coba lagi".
   submit() {
     const pend = pendingChanges(nowJ());
     if (!pend.length) return;
+    const vch = S.voucher, added = addedByMonth(pend);
+    if (vch && !sumObj(added)) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
     const n = pend.reduce((a, c) => a + c.n, 0), before = {}, changes = pend.map(c => ({ date: c.date, l: c.l, d: c.d }));
+    const tentative = vch ? { code: vch.code, split: splitVoucher(vch.value, added), pending: true } : null;
+    if (tentative) { tentative.discount = sumObj(tentative.split); S.myVouchers.push(tentative); S.voucher = null; }
     pend.forEach(c => {
       before[c.date] = S.saved[c.date] ? clone(S.saved[c.date]) : null;
       if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d }; else delete S.saved[c.date];
     });
     S.syncing++; S.pop = null;
-    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat');
-    S.sync = S.sync.then(() => call('saveRegistrations', { changes }).then(r => {
+    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
+    S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null }).then(r => {
       S.syncing--;
+      if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1, r.voucher || tentative); }
       changes.forEach(c => {                       // align server-adjusted days (closed meal, locked) if untouched since
         const sel = S.sel[c.date] || {}, sv = r.reg[c.date];
         if ((sel.l || 0) === c.l && (sel.d || 0) === c.d) { if (sv) S.sel[c.date] = clone(sv); else delete S.sel[c.date]; }
@@ -916,6 +1045,7 @@ const A = {
     }, e => {
       S.syncing--;
       changes.forEach(c => { const b = before[c.date]; if (b) S.saved[c.date] = b; else delete S.saved[c.date]; });
+      if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1); if (!S.voucher) S.voucher = vch; }
       if (isSession(e)) return fail(e);
       flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.submit(), 'Coba lagi');
     }));
@@ -1010,6 +1140,30 @@ const A = {
   msAll(el) { const c = MS[el.dataset.k]; c.set(c.opts().map(o => o[0])); render(); },
   msNone(el) { MS[el.dataset.k].set([]); render(); },
 
+  // admin vouchers
+  vcTemplate() { download('contoh-voucher.csv', ['kode,nilai,berlaku_sampai', 'MAKAN10K,10000,2026-12-31', 'HEMAT5K,5000,'], 'Contoh CSV diunduh'); },
+  vcClear() { S.vc.text = ''; S.vc.fileName = ''; render(); },
+  async vcUpload() {
+    const V = S.vc, ok = parseVouchers(V.text).filter(r => !r.err);
+    if (!ok.length || V.busy) return;
+    V.busy = true; render();
+    try {
+      const r = await call('uploadVouchers', { rows: ok.map(x => ({ code: x.code, value: x.value, until: x.until })) });
+      r._at = Date.now(); V.data = r; V.text = ''; V.fileName = ''; V.busy = false;
+      flash(nf(r.added) + ' voucher tersimpan' + (r.skipped.length ? ' · ' + nf(r.skipped.length) + ' dilewati' : ''));
+    } catch (e) { V.busy = false; render(); fail(e); }
+  },
+  async vcDelete(el) {
+    const code = el.dataset.c;
+    if (!window.confirm('Hapus voucher ' + code + '? Kode ini tidak bisa dipakai lagi.')) return;
+    try { const r = await call('deleteVoucher', { code }); r._at = Date.now(); S.vc.data = r; flash('Voucher ' + code + ' dihapus'); } catch (e) { fail(e); }
+  },
+  vcExport() {
+    const D = S.vc.data; if (!D) return;
+    download('voucher.csv', ['Kode,Nilai,Berlaku sampai,Status,NIK,Nama,Dipakai pada,Potongan,Rincian per bulan'].concat(D.list.map(v =>
+      [csvq(v.code), v.value, v.until, VC_STATE[v.state][0], csvq(v.usedBy), csvq(v.usedName), csvq(v.usedAt), v.discount || '', csvq(v.split)].join(','))), 'Voucher diekspor');
+  },
+
   // admin closures
   clMeal(el) { S.cl.meal = el.dataset.v; render(); },
   clReason(el) { S.cl.reason = S.cl.reason === el.dataset.v ? '' : el.dataset.v; render(); },
@@ -1042,7 +1196,10 @@ const IN = {
   nm(v) { S.nm = v; if (S.loginErr) { S.loginErr = ''; render(); } },
   fbNote(v) { if (S.fbDraft) S.fbDraft.note = v; },
   q(v) { S.hr.q = v; render(); },
-  clReason(v) { S.cl.reason = v; render(); }
+  clReason(v) { S.cl.reason = v; render(); },
+  vcode(v) { S.vcode = v; },
+  vcText(v) { S.vc.text = v; render(); },
+  vcq(v) { S.vc.q = v; render(); }
 };
 const CH = {
   quick(v) {
@@ -1060,7 +1217,17 @@ const CH = {
   cutT(v) { S.hr.cutT = v; },
   clFrom(v) { S.cl.from = v; if (S.cl.to < v) S.cl.to = v; render(); },
   clTo(v) { S.cl.to = v; render(); },
-  clSkip(v, el) { S.cl.skip = el.checked; render(); }
+  clSkip(v, el) { S.cl.skip = el.checked; render(); },
+  vcStatus(v) { S.vc.status = v; render(); },
+  vcFile(v, el) {
+    const f = el.files && el.files[0];
+    if (!f) return;
+    if (f.size > 2e6) return flash('File terlalu besar (maks. 2 MB).');
+    const rd = new FileReader();
+    rd.onload = () => { S.vc.text = String(rd.result || ''); S.vc.fileName = f.name; render(); };
+    rd.onerror = () => flash('File tidak bisa dibaca.');
+    rd.readAsText(f);
+  }
 };
 
 // chip click, drag-to-paint
@@ -1104,6 +1271,7 @@ function init() {
   window.addEventListener('scroll', () => { if (S.pop) { S.pop = null; render(); } }, true);
   window.addEventListener('resize', () => { if (S.pop) S.pop = null; if (S.user) render(); });
   window.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
     if (e.key !== 'Escape') return;
     if (S.ms) { S.ms = null; return render(); }
     if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
