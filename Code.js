@@ -67,7 +67,7 @@ const ACTIONS = {
   adminDay: (token, p) => { auth_(token, true); return adminDay_(p.date); },
   adminMonth: (token, p) => { auth_(token, true); return adminMonth_(p.ym); },
   adminMonthDetail: (token, p) => { auth_(token, true); return adminMonthDetail_(p.ym); },
-  adminFeedback: token => { auth_(token, true); return adminFeedback_(); },
+  adminFeedback: (token, p) => { auth_(token, true); return adminFeedback_(p); },
   adminClosures: token => { auth_(token, true); return adminClosures_(); },
   adminImpact: (token, p) => { auth_(token, true); const ds = (p.dates || []).filter(isKey_); return impactOf_(ds.length ? regsMonths_(ds.map(k => k.slice(0, 7))) : [], ds, p.meal); },
   addClosure: (token, p) => addClosure_(auth_(token, true), p),
@@ -730,13 +730,18 @@ function adminMonthDetail_(ym) {
   return out;
 }
 
-function adminFeedback_() {
+/** Feedback sessions for `from`–`to` (default the last 14 days, max 92) and the 8-week trend ending at `to`. */
+function adminFeedback_(p) {
+  p = p || {};
   const now = now_(), em = empMap_(employees_()), closures = closures_();
-  const trendFrom = addDays_(addDays_(now.key, -dow_(now.key)), -49);
-  const all = fbMonths_(monthsBetween_(trendFrom, now.key)).filter(f => f.date >= trendFrom && f.date <= now.key && !blockOf_(closures, f.date, f.meal));
-  const sesFrom = addDays_(now.key, -13), groups = {};
+  const to = isKey_(p.to) && p.to <= now.key ? p.to : now.key;
+  let from = isKey_(p.from) && p.from <= to ? p.from : addDays_(to, -13);
+  if (from < addDays_(to, -91)) from = addDays_(to, -91);
+  const trendFrom = addDays_(addDays_(to, -dow_(to)), -49), lo = from < trendFrom ? from : trendFrom;
+  const all = fbMonths_(monthsBetween_(lo, to)).filter(f => f.date >= lo && f.date <= to && !blockOf_(closures, f.date, f.meal));
+  const groups = {};
   all.forEach(f => {
-    if (f.date < sesFrom) return;
+    if (f.date < from) return;
     const key = f.date + '-' + f.meal, e = em[f.nik];
     (groups[key] = groups[key] || { date: f.date, meal: f.meal, list: [] }).list.push({
       r: f.r, tags: f.tags, note: f.note, who: e ? e.name + (e.dept ? ' · ' + e.dept : '') : f.nik
@@ -748,10 +753,10 @@ function adminFeedback_() {
   for (let w = 0; w < 8; w++) {
     const ws = addDays_(trendFrom, w * 7), we = addDays_(ws, 6);
     let e = 0, n = 0;
-    all.forEach(f => { if (f.date >= ws && f.date <= we) { n++; if (f.r === 'enak') e++; } });
+    all.forEach(f => { if (f.date >= ws && f.date <= we && f.date >= trendFrom) { n++; if (f.r === 'enak') e++; } });
     trend.push({ ws, e, n });
   }
-  return { from: sesFrom, to: now.key, sessions, trend, tags: FB_TAGS };
+  return { from, to, sessions, trend, tags: FB_TAGS };
 }
 
 function impactOf_(regs, dates, meal) {
