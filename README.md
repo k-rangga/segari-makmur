@@ -24,7 +24,7 @@ Spreadsheet ID is `SPREADSHEET_ID` in `Code.js`. Missing tabs and headers are cr
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | Feedback. Kitchen CSV export is anonymous; admins see names. |
 | `menu` | Tanggal, Siang, Malam | Optional menu names shown in feedback prompts. |
 | `voucher` | Kode, Nilai, Berlaku sampai, Dipakai oleh, Dipakai pada, Potongan, Rincian, Diunggah pada, Diunggah oleh | Single-use discount codes (fixed Rupiah). Admins bulk-upload them on the **Voucher** page (CSV `kode,nilai,berlaku_sampai`). An employee enters a code when submitting; it takes that submission's new portions off the deduction, capped at their cost, and records the split per month in Rincian. |
-| `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` (3 = Friday before the week), `batas_jam` (23:59), `maks_porsi` (3), `email_konfirmasi` (ya/tidak), `email_nama_pengirim`, `email_balas_ke` (Reply-To, e.g. a group address). |
+| `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` (3 = Friday before the week), `batas_jam` (23:59), `maks_porsi` (3), `email_konfirmasi` (ya/tidak), `email_pengirim` (program-makan@segari.id), `email_nama_pengirim`, `email_balas_ke` (optional Reply-To). |
 
 Caching: employees, settings, closures, menus, vouchers and per-month registrations and feedback are cached server-side for 5 minutes. Changes made through the app update the cache immediately; manual edits in the sheet appear within 5 minutes.
 
@@ -32,7 +32,12 @@ Login: employees type their NIK and full name exactly as in `employee` (case and
 
 ## Email
 
-Confirmations are sent with MailApp as the script owner, using the sender name and Reply-To from `pengaturan` (daily limit 1,500 recipients on Google Workspace). Sending *from* a group address would need the group verified as a Gmail "Send mail as" alias for the owner, plus GmailApp with full Gmail access. Run `checkEmailSetup` from the editor to grant the email permission and see the current setup.
+Confirmations are sent through the Gmail API (advanced service, send-only `gmail.send` permission) **from `program-makan@segari.id`** (setting `email_pengirim`). One-time setup:
+
+1. In the script owner's Gmail (kalaka@segari.id): Settings → Accounts → **Send mail as** → *Add another email address* → `program-makan@segari.id`, then confirm with the code Google sends to that group.
+2. Run `checkEmailSetup` from the script editor: it grants the permission, logs the setup and sends a test email to the first admin with an Email. If the test arrives from the owner's address, the alias is not verified yet.
+
+`email_nama_pengirim` sets the display name, `email_balas_ke` an optional Reply-To (blank = replies go to the sender). Gmail's sending limit for Workspace is about 2,000 messages a day.
 
 ## Deploy
 

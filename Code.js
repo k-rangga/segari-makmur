@@ -34,8 +34,9 @@ const DEFAULT_SETTINGS = [
   ['batas_jam', '23:59', 'Jam batas pendaftaran (HH:MM)'],
   ['maks_porsi', '3', 'Maksimal porsi per waktu makan'],
   ['email_konfirmasi', 'ya', 'Kirim email konfirmasi setelah karyawan mengirim pendaftaran (ya/tidak). Butuh kolom Email di tab employee.'],
+  ['email_pengirim', 'program-makan@segari.id', 'Alamat pengirim. Harus terdaftar sebagai "Send mail as" di Gmail pemilik script; kosongkan untuk memakai email pemilik.'],
   ['email_nama_pengirim', 'Segari Program Makan', 'Nama pengirim yang tampil di email'],
-  ['email_balas_ke', '', 'Alamat untuk balasan, mis. email grup program makan (opsional)']
+  ['email_balas_ke', '', 'Alamat untuk balasan (opsional; kosong = balasan ke alamat pengirim)']
 ];
 
 // ---------------------------------------------------------------- web app
@@ -561,9 +562,9 @@ function saveFeedback_(me, p) {
 }
 
 // ---------------------------------------------------------------- email
-// Confirmation emails go out with MailApp as the script owner (narrow "send email" permission).
-// The sender name and a Reply-To (e.g. a Google Group) come from `pengaturan`. Sending *from*
-// a group address would need it verified as a Gmail "Send mail as" alias plus GmailApp.
+// Confirmation emails go out through the Gmail API (advanced service, send-only `gmail.send`
+// permission) so they can come *from* a group address such as program-makan@segari.id.
+// That address must be a verified "Send mail as" alias in the script owner's Gmail.
 
 const ID_DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
 const ID_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -577,9 +578,9 @@ function mailSettings_() {
   return cached_('mail1', () => {
     const m = {};
     readTable_('pengaturan').rows.forEach(r => { m[String(r.kunci).toLowerCase()] = r.nilai; });
-    const reply = String(m.email_balas_ke || '').trim();
+    const reply = String(m.email_balas_ke || '').trim(), from = String(m.email_pengirim || '').trim();
     return { on: !/^(tidak|no|false|0|off|n)$/i.test(String(m.email_konfirmasi || 'ya').trim()),
-      name: String(m.email_nama_pengirim || 'Segari Program Makan').trim(), replyTo: EMAIL_RE.test(reply) ? reply : '' };
+      from: EMAIL_RE.test(from) ? from : '', name: String(m.email_nama_pengirim || 'Segari Program Makan').trim(), replyTo: EMAIL_RE.test(reply) ? reply : '' };
   });
 }
 
@@ -594,7 +595,6 @@ function sendConfirmation_(me, changed, used, s, now) {
   try {
     const cfg = mailSettings_();
     if (!cfg.on || !EMAIL_RE.test(me.email || '')) return false;
-    if (MailApp.getRemainingDailyQuota() < 1) { console.warn('Kuota email harian habis'); return false; }
     const days = Object.keys(changed).sort(), months = {};
     days.forEach(k => { months[k.slice(0, 7)] = true; });
     if (used) Object.keys(used.split).forEach(m => { months[m] = true; });
@@ -643,9 +643,7 @@ function sendConfirmation_(me, changed, used, s, now) {
       '<p style="margin:20px 0 0;font-size:12px;color:#7a837d">Email ini dikirim otomatis. ' + (cfg.replyTo ? 'Ada pertanyaan? Balas email ini.' : 'Ada pertanyaan? Hubungi admin program makan.') + '</p>' +
       '</div></div>';
 
-    const opts = { to: me.email, subject, body: text, htmlBody: html, name: cfg.name };
-    if (cfg.replyTo) opts.replyTo = cfg.replyTo;
-    MailApp.sendEmail(opts);
+    sendMail_(cfg, me.email, subject, text, html);
     return true;
   } catch (e) {
     console.warn('Email konfirmasi gagal: ' + e);
@@ -653,17 +651,38 @@ function sendConfirmation_(me, changed, used, s, now) {
   }
 }
 
+/** Builds a UTF-8 multipart (text + HTML) message and sends it with the Gmail API. */
+function sendMail_(cfg, to, subject, text, html) {
+  const b = 'pm' + Utilities.getUuid().replace(/-/g, '');
+  const enc = s => Utilities.base64Encode(s, Utilities.Charset.UTF_8).replace(/(.{76})/g, '$1\r\n');
+  const word = v => '=?UTF-8?B?' + Utilities.base64Encode(v, Utilities.Charset.UTF_8) + '?=';
+  const head = [];
+  if (cfg.from) head.push('From: ' + word(cfg.name) + ' <' + cfg.from + '>');   // no From = the owner's address
+  head.push('To: ' + to);
+  if (cfg.replyTo) head.push('Reply-To: ' + cfg.replyTo);
+  head.push('Subject: ' + word(subject), 'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="' + b + '"');
+  const mime = head.concat(['', '--' + b, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', enc(text),
+    '--' + b, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', enc(html), '--' + b + '--', '']).join('\r\n');
+  Gmail.Users.Messages.send({ raw: Utilities.base64EncodeWebSafe(mime, Utilities.Charset.UTF_8) }, 'me');
+}
+
 /**
- * Run once from the editor after this update: grants the "send email" permission and logs the
- * email setup. Employees get confirmations only if their row has an Email.
+ * Run once from the editor after this update: grants the Gmail "send email" permission, logs the
+ * setup and sends a test email to the first admin with an Email, so you can check the From address.
+ * If it arrives from the owner's address instead of the sender, the "Send mail as" alias is not verified yet.
  */
 function checkEmailSetup() {
   const cfg = mailSettings_(), emps = employees_(true), withMail = emps.filter(e => EMAIL_RE.test(e.email));
   Logger.log('Email konfirmasi: ' + (cfg.on ? 'aktif' : 'nonaktif'));
-  Logger.log('Nama pengirim: ' + cfg.name);
-  Logger.log('Balas ke: ' + (cfg.replyTo || '(tidak diisi; balasan masuk ke pemilik script)'));
-  Logger.log('Sisa kuota email hari ini: ' + MailApp.getRemainingDailyQuota());
+  Logger.log('Pengirim: ' + cfg.name + ' <' + (cfg.from || 'email pemilik script') + '>');
+  Logger.log('Balas ke: ' + (cfg.replyTo || '(alamat pengirim)'));
   Logger.log('Karyawan dengan email: ' + withMail.length + ' dari ' + emps.length);
+  const admin = withMail.find(e => e.admin);
+  if (!admin) return Logger.log('Tes tidak dikirim: belum ada admin dengan Email di tab employee.');
+  sendMail_(cfg, admin.email, 'Tes email Segari Program Makan',
+    'Ini email tes. Kalau pengirimnya ' + (cfg.from || 'email pemilik script') + ', pengaturan email sudah benar.',
+    '<p style="font-family:sans-serif">Ini email tes. Kalau pengirimnya <b>' + esc_(cfg.from || 'email pemilik script') + '</b>, pengaturan email sudah benar.</p>');
+  Logger.log('Email tes dikirim ke ' + admin.email + '. Cek alamat pengirimnya.');
 }
 
 // ---------------------------------------------------------------- vouchers
