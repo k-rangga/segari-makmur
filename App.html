@@ -68,14 +68,14 @@ const ICON = {
 
 // ------------------------------------------------------------ state
 const S = {
-  booting: true, busy: false, token: ls.get('pm-token'), user: null, settings: { cutDays: 3, cutTime: '23:59', maxPortions: 3 },
+  booting: true, busy: false, token: ls.get('pm-token'), user: null, settings: { cut: { white: { days: 3, time: '23:59' }, blue: { days: 3, time: '23:59' } }, maxPortions: 3 },
   price: 5000, skew: 0, months: [], fbTags: [], fbEditDays: 3,
   view: 'meal', navClosed: ls.get('pm-navClosed') === '1',
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
   hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
-    fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cutD: 3, cutT: '23:59', print: false, printAt: '' },
+    fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
   vc: { data: null, text: '', fileName: '', q: '', status: 'all', busy: false },
@@ -107,16 +107,23 @@ function nowJ() {
   const d = new Date(Date.now() + S.skew + 7 * 3600e3);
   return { key: d.toISOString().slice(0, 10), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
-function cutoffOf(k) {
-  const ws = addDays(k, -dow(k));
-  return { key: addDays(ws, -S.settings.cutDays), min: hm(S.settings.cutTime) };
+// Cutoff differs per collar; employee screens use the signed-in user's collar.
+const COLLARS = ['white', 'blue'];
+const myCollar = () => (S.user && S.user.collar) === 'blue' ? 'blue' : 'white';
+function cutoffOf(k, collar) {
+  const ws = addDays(k, -dow(k)), r = S.settings.cut[collar || myCollar()];
+  return { key: addDays(ws, -r.days), min: hm(r.time), time: r.time, days: r.days };
 }
-function isLocked(k, now) {
-  const c = cutoffOf(k);
+// Week-level lock: the week's cutoff has passed.
+function weekLocked(k, now, collar) {
+  const c = cutoffOf(k, collar);
   return now.key > c.key || (now.key === c.key && now.min >= c.min);
 }
+// Day-level lock: also today and past days, which matters when the cutoff falls inside the meal week.
+const isLocked = (k, now, collar) => k <= now.key || weekLocked(k, now, collar);
+const cutInWeek = c => c.days <= 0;
 const minsUntil = (c, now) => (k2t(c.key) - k2t(now.key)) / 6e4 + c.min - now.min;
-const cutLabel = c => DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)] + ', ' + S.settings.cutTime;
+const cutLabel = c => DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)] + ', ' + c.time;
 function leftTxt(m) {
   m = Math.max(1, Math.round(m));
   const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mm = m % 60;
@@ -372,14 +379,15 @@ function monthStatus(ym, now, pend) {
 
 function nextOpenWeek(now) {
   let ws = addDays(now.key, -dow(now.key));
-  for (let i = 0; i < 6 && isLocked(ws, now); i++) ws = addDays(ws, 7);
+  for (let i = 0; i < 6 && weekLocked(ws, now); i++) ws = addDays(ws, 7);
   return ws;
 }
 
 function lockBarView(now) {
   const ws = nextOpenWeek(now), c = cutoffOf(ws), m = minsUntil(c, now), soon = m <= 24 * 60;
   const head = soon ? 'Minggu ' + weekRange(ws) + ' terkunci dalam ' + leftTxt(m) + '.' : 'Minggu ' + weekRange(ws) + ' masih bisa diubah sampai ' + cutLabel(c) + '.';
-  const text = soon ? 'Setelah itu pilihan minggu tersebut tidak bisa diubah, dan pilihan yang belum dikirim tidak tercatat.' : 'Minggu yang sudah lewat batas tidak bisa diubah lagi.';
+  const text = (soon ? 'Setelah itu pilihan minggu tersebut tidak bisa diubah, dan pilihan yang belum dikirim tidak tercatat.' : 'Minggu yang sudah lewat batas tidak bisa diubah lagi.') +
+    (cutInWeek(c) ? ' Hari ini dan hari yang sudah lewat selalu terkunci.' : '');
   return '<div class="lockbar' + (soon ? ' lk' : '') + '">' + ICON.clock(18) + '<span><strong>' + head + '</strong> ' + text + '</span></div>';
 }
 
@@ -398,8 +406,8 @@ function calendarView(ym, now) {
   let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 700 : 860) + 'px"><span style="border-bottom:1px solid #e3e6e1"></span>';
   h += DAYS.slice(0, nd).map((d, i) => '<span class="cal-dh" style="color:' + (i >= 5 ? '#5d6560' : '#1d211f') + '">' + d + '</span>').join('');
   for (let ws = addDays(first, -dow(first)); ws <= last; ws = addDays(ws, 7)) {
-    const we = addDays(ws, 6), days = daysOf(ws, we), lk = isLocked(ws, now), c = cutoffOf(ws);
-    const label = ws <= today && today <= we ? 'Minggu ini · terkunci' : we < today ? 'Lewat' : lk ? 'Terkunci' : c.key === today ? 'Batas hari ini ' + S.settings.cutTime : 'Sampai ' + DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)];
+    const we = addDays(ws, 6), days = daysOf(ws, we), lk = weekLocked(ws, now), c = cutoffOf(ws);
+    const label = ws <= today && today <= we && lk ? 'Minggu ini · terkunci' : we < today ? 'Lewat' : lk ? 'Terkunci' : c.key === today ? 'Batas hari ini ' + c.time : 'Sampai ' + DAYS[dow(c.key)] + ' ' + dnum(c.key) + ' ' + MON[mnum(c.key)];
     let n = 0;
     days.forEach(k => {
       if (k.slice(0, 7) !== ym || k < today) return;
@@ -407,7 +415,7 @@ function calendarView(ym, now) {
       if (!blockOf(S.closures, k, 'lunch')) n += v.l || 0;
       if (!blockOf(S.closures, k, 'dinner')) n += v.d || 0;
     });
-    const editable = !lk && days.some(k => k.slice(0, 7) === ym);
+    const editable = !lk && days.some(k => k.slice(0, 7) === ym && k > today);
     h += '<div class="cal-wk"><span class="lb" style="color:' + (we < today ? '#5d6560' : '#1d211f') + '">' + label + '</span>' +
       (we >= today ? '<div class="sum"><span>' + n + ' porsi</span><b>' + rp(n * S.price) + '</b></div>' : '') +
       (editable ? '<div class="lk"><button class="link sm" data-a="fillWeek" data-ws="' + ws + '">Isi minggu</button><button class="link sm muted" style="font-weight:400" data-a="clearWeek" data-ws="' + ws + '">Kosongkan</button></div>' : '') + '</div>';
@@ -598,14 +606,38 @@ function daySums(day) {
   return { l, d, pl, pd, n: day.rows.length };
 }
 
+// Days before the meal week's Monday -> weekday name: 5 = Rabu minggu sebelumnya … 1 = Minggu, 0 = Senin … -2 = Rabu minggu makan.
+const cutDay = n => FD[(7 - n) % 7];
+const cutWeek = n => n > 0 ? 'sebelum minggu makan' : 'di minggu makan';
+const CUT_DAYS = [5, 4, 3, 2, 1, 0, -1, -2];
 function cutInfo(k, now) {
-  const c = cutoffOf(k), ws = addDays(k, -dow(k));
-  const when = FD[dow(c.key)] + ' ' + dnum(c.key) + ' ' + FMN[mnum(c.key)] + ', ' + S.settings.cutTime;
-  const CDN = { 5: 'Rabu', 4: 'Kamis', 3: 'Jumat', 2: 'Sabtu', 1: 'Minggu' };
-  const rule = 'Batas: setiap ' + CDN[S.settings.cutDays] + ' pukul ' + S.settings.cutTime + ' sebelum minggu makan';
+  const ws = addDays(k, -dow(k)), cs = S.settings.cut;
+  const when = c => FD[dow(c.key)] + ' ' + dnum(c.key) + ' ' + FMN[mnum(c.key)] + ', ' + c.time;
+  const ruleOf = r => 'setiap ' + cutDay(r.days) + ' ' + cutWeek(r.days) + ' pukul ' + r.time;
+  const p = COLLARS.map(col => { const c = cutoffOf(k, col); return { col, c, lk: weekLocked(k, now, col) }; });
+  const same = cs.white.days === cs.blue.days && cs.white.time === cs.blue.time;
+  const rule = same ? 'Batas: ' + ruleOf(cs.white) : 'Batas white collar: ' + ruleOf(cs.white) + ' · blue collar: ' + ruleOf(cs.blue);
   if (k < now.key) return { head: 'Sudah lewat · data final', short: 'Sudah lewat', sub: rule, lk: true };
-  if (isLocked(k, now)) return { head: 'Porsi sudah pasti · pendaftaran minggu ' + weekRange(ws) + ' ditutup ' + when, short: 'Porsi sudah pasti', sub: rule, lk: true };
-  return { head: 'Masih bisa berubah · ditutup ' + when + ' (' + leftTxt(minsUntil(c, now)) + ' lagi)', short: 'Masih bisa berubah', sub: rule, lk: false };
+  if (k === now.key) return { head: 'Hari ini · porsi sudah pasti', short: 'Porsi sudah pasti', sub: rule, lk: true };
+  const allLk = p.every(x => x.lk), anyLk = p.some(x => x.lk);
+  if (same) {
+    const c = p[0].c;
+    if (allLk) return { head: 'Porsi sudah pasti · pendaftaran minggu ' + weekRange(ws) + ' ditutup ' + when(c), short: 'Porsi sudah pasti', sub: rule, lk: true };
+    return { head: 'Masih bisa berubah · ditutup ' + when(c) + ' (' + leftTxt(minsUntil(c, now)) + ' lagi)', short: 'Masih bisa berubah', sub: rule, lk: false };
+  }
+  const part = x => collarName(x.col) + (x.lk ? ' sudah pasti' : ' ditutup ' + when(x.c) + ' (' + leftTxt(minsUntil(x.c, now)) + ' lagi)');
+  if (allLk) return { head: 'Porsi sudah pasti · pendaftaran minggu ' + weekRange(ws) + ' ditutup', short: 'Porsi sudah pasti', sub: rule, lk: true };
+  return { head: (anyLk ? 'Sebagian masih bisa berubah · ' : 'Masih bisa berubah · ') + p.map(part).join(' · '), short: anyLk ? 'Sebagian masih bisa berubah' : 'Masih bisa berubah', sub: rule, lk: false };
+}
+function cutEditView(H) {
+  const row = col => '<div class="cut-row"><span class="cut-col">' + collarName(col) + '</span>' +
+    '<label class="field"><span class="lbl">Pendaftaran ditutup setiap</span><select class="input" style="width:260px" data-ch="cutD" data-k="' + col + '">' +
+    [['Minggu sebelumnya', CUT_DAYS.filter(n => n > 0)], ['Minggu makan', CUT_DAYS.filter(n => n <= 0)]].map(g => '<optgroup label="' + g[0] + '">' +
+      g[1].map(n => '<option value="' + n + '"' + (H.cut[col].days === n ? ' selected' : '') + '>' + cutDay(n) + ' ' + cutWeek(n) + '</option>').join('') + '</optgroup>').join('') + '</select></label>' +
+    '<label class="field"><span class="lbl">Pukul</span><input type="time" class="input" style="width:140px" data-ch="cutT" data-k="' + col + '" value="' + H.cut[col].time + '"></label></div>';
+  return '<div class="cut-edit">' + COLLARS.map(row).join('') +
+    '<div style="display:flex;gap:8px"><button class="btn-primary sm" data-a="cutSave">Simpan</button><button class="btn" data-a="cutCancel">Batal</button></div>' +
+    '<span class="nt">Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi. Jika batas jatuh di minggu makan, hari ini dan hari yang sudah lewat tetap terkunci.</span></div>';
 }
 
 function dayView() {
@@ -615,11 +647,7 @@ function dayView() {
     '<input type="date" class="input lg" style="width:200px" data-ch="hrDate" value="' + H.date + '" min="' + minD + '" max="' + maxD + '"></div>';
   h += '<div class="cut' + (ci.lk ? ' lk' : '') + '"><div class="cut-r"><div class="t"><b>' + ci.head + '</b><span>' + ci.sub + '</span></div>' +
     (H.cutEdit ? '' : '<button class="btn" data-a="cutEdit">Atur batas</button>') + '</div>' +
-    (H.cutEdit ? '<div class="cut-edit"><label class="field"><span class="lbl">Pendaftaran ditutup setiap</span><select class="input" style="width:220px" data-ch="cutD">' +
-      [[5, 'Rabu'], [4, 'Kamis'], [3, 'Jumat'], [2, 'Sabtu'], [1, 'Minggu']].map(o => '<option value="' + o[0] + '"' + (H.cutD === o[0] ? ' selected' : '') + '>' + o[1] + ' sebelumnya</option>').join('') + '</select></label>' +
-      '<label class="field"><span class="lbl">Pukul</span><input type="time" class="input" style="width:140px" data-ch="cutT" value="' + H.cutT + '"></label>' +
-      '<div style="display:flex;gap:8px"><button class="btn-primary sm" data-a="cutSave">Simpan</button><button class="btn" data-a="cutCancel">Batal</button></div>' +
-      '<span class="nt">Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi.</span></div>' : '') + '</div>';
+    (H.cutEdit ? cutEditView(H) : '') + '</div>';
   if (!day) return h + skelView(8);
 
   const s = daySums(day);
@@ -1186,14 +1214,16 @@ const A = {
   hrMode(el) { S.hr.mode = el.dataset.v; render(); },
   sort(el) { const k = el.dataset.k, so = S.hr.sort, num = k === 'l' || k === 'd'; S.hr.sort = { k, dir: so.k === k ? -so.dir : num ? -1 : 1 }; render(); },
   openDay(el) { S.hr.mode = 'day'; S.hr.date = el.dataset.k; S.hr.meal = 'all'; render(); },
-  cutEdit() { S.hr.cutEdit = true; S.hr.cutD = S.settings.cutDays; S.hr.cutT = S.settings.cutTime; render(); },
+  cutEdit() { const c = S.settings.cut; S.hr.cutEdit = true; S.hr.cut = { white: Object.assign({}, c.white), blue: Object.assign({}, c.blue) }; render(); },
   cutCancel() { S.hr.cutEdit = false; render(); },
   async cutSave() {
     const H = S.hr;
     try {
-      S.settings = await call('saveSettings', { cutDays: H.cutD, cutTime: H.cutT || '23:59' });
+      COLLARS.forEach(col => { H.cut[col].time = H.cut[col].time || '23:59'; });
+      S.settings = await call('saveSettings', { cut: H.cut });
       H.cutEdit = false;
-      flash('Batas diubah ke ' + FD[(7 - S.settings.cutDays) % 7] + ' ' + S.settings.cutTime);
+      const c = S.settings.cut;
+      flash('Batas diubah · White collar ' + cutDay(c.white.days) + ' ' + cutWeek(c.white.days) + ' ' + c.white.time + ' · Blue collar ' + cutDay(c.blue.days) + ' ' + cutWeek(c.blue.days) + ' ' + c.blue.time);
     } catch (e) { fail(e); }
   },
   openPrint() { const now = nowJ(); S.hr.print = true; S.hr.printAt = fmt(now.key) + ' ' + String(Math.floor(now.min / 60)).padStart(2, '0') + ':' + String(now.min % 60).padStart(2, '0'); render(); },
@@ -1348,8 +1378,8 @@ const CH = {
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
   hrStore(v) { S.hr.store = v; render(); },
-  cutD(v) { S.hr.cutD = Number(v); },
-  cutT(v) { S.hr.cutT = v; },
+  cutD(v, el) { S.hr.cut[el.dataset.k].days = Number(v); },
+  cutT(v, el) { S.hr.cut[el.dataset.k].time = v; },
   clSkip(v, el) { S.cl.skip = el.checked; render(); },
   vcStatus(v) { S.vc.status = v; render(); },
   vcFile(v, el) {
@@ -1427,7 +1457,8 @@ function init() {
   if (S.token) {
     let cached = null;
     try { cached = JSON.parse(ls.get('pm-boot') || 'null'); } catch (e) { cached = null; }
-    if (cached && cached.t === S.token && cached.d) applyBoot(cached.d, true, cached.skew);
+    // Skips caches saved before the per-collar cutoff (settings.cut) existed.
+    if (cached && cached.t === S.token && cached.d && cached.d.settings && cached.d.settings.cut) applyBoot(cached.d, true, cached.skew);
     boot().catch(e => {
       S.booting = false;
       if (isSession(e) || !S.user) return isSession(e) ? fail(e) : signOut('');

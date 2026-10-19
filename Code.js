@@ -28,8 +28,10 @@ const SHEETS = {
 // Columns kept as plain text so dates and NIKs are never auto-converted.
 const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masukan: ['A', 'C'], menu: ['A'], pengaturan: ['B'], voucher: ['A', 'C', 'D', 'G'] };
 const DEFAULT_SETTINGS = [
-  ['batas_hari', '3', 'Pendaftaran minggu depan ditutup N hari sebelum Senin (3 = Jumat, 1 = Minggu)'],
-  ['batas_jam', '23:59', 'Jam batas pendaftaran (HH:MM)'],
+  ['batas_hari', '3', 'White collar: pendaftaran minggu depan ditutup N hari sebelum Senin (5 = Rabu, 3 = Jumat, 1 = Minggu, 0 = Senin, -2 = Rabu minggu makan)'],
+  ['batas_jam', '23:59', 'White collar: jam batas pendaftaran (HH:MM)'],
+  ['batas_hari_blue', '3', 'Blue collar: pendaftaran minggu depan ditutup N hari sebelum Senin (5 = Rabu, 3 = Jumat, 1 = Minggu, 0 = Senin, -2 = Rabu minggu makan)'],
+  ['batas_jam_blue', '23:59', 'Blue collar: jam batas pendaftaran (HH:MM)'],
   ['maks_porsi', '3', 'Maksimal porsi per waktu makan']
 ];
 
@@ -156,24 +158,33 @@ function hm_(s) { const p = String(s).split(':').map(Number); return (p[0] || 0)
 function monthEnd_(ym) { const p = ym.split('-').map(Number); return t2k_(Date.UTC(p[0], p[1], 0)); }
 function addMonths_(ym, n) { const p = ym.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1 + n, 1)).toISOString().slice(0, 7); }
 
-function cutoff_(k, s) {
-  const ws = addDays_(k, -dow_(k));
-  return { key: addDays_(ws, -s.cutDays), min: hm_(s.cutTime) };
+const COLLARS = ['white', 'blue'];
+const CUT_KEYS = { white: ['batas_hari', 'batas_jam'], blue: ['batas_hari_blue', 'batas_jam_blue'] };
+// Days before the meal week's Monday: 5 = Rabu minggu sebelumnya … 1 = Minggu, 0 = Senin … -2 = Rabu minggu makan.
+const MAX_CUT_DAYS = 5, MIN_CUT_DAYS = -2;
+
+function cutoff_(k, s, collar) {
+  const ws = addDays_(k, -dow_(k)), c = s.cut[collar === 'blue' ? 'blue' : 'white'];
+  return { key: addDays_(ws, -c.days), min: hm_(c.time) };
 }
-function locked_(k, s, now) {
-  const c = cutoff_(k, s);
-  return now.key > c.key || (now.key === c.key && now.min >= c.min);
+/** Locked once the week's cutoff passes; today and past days are always locked (matters when the cutoff falls inside the meal week). */
+function locked_(k, s, now, collar) {
+  const c = cutoff_(k, s, collar);
+  return k <= now.key || now.key > c.key || (now.key === c.key && now.min >= c.min);
 }
 
 // ---------------------------------------------------------------- data access
 
 function settings_() {
-  return cached_('set1', () => {
+  return cached_('set2', () => {
     const m = {};
     readTable_('pengaturan').rows.forEach(r => { m[String(r.kunci).toLowerCase()] = r.nilai; });
     const int = (v, lo, hi, d) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
-    const t = /^\d{1,2}:\d{2}$/.test(m.batas_jam || '') ? m.batas_jam.padStart(5, '0') : '23:59';
-    return { cutDays: int(m.batas_hari, 1, 5, 3), cutTime: t, maxPortions: int(m.maks_porsi, 1, 10, 3) };
+    const time = (v, d) => /^\d{1,2}:\d{2}$/.test(v || '') ? v.padStart(5, '0') : d;
+    const white = { days: int(m.batas_hari, MIN_CUT_DAYS, MAX_CUT_DAYS, 3), time: time(m.batas_jam, '23:59') };
+    // Blue collar falls back to the white-collar cutoff until its own keys are set.
+    const blue = { days: int(m.batas_hari_blue, MIN_CUT_DAYS, MAX_CUT_DAYS, white.days), time: time(m.batas_jam_blue, white.time) };
+    return { cut: { white, blue }, maxPortions: int(m.maks_porsi, 1, 10, 3) };
   });
 }
 
@@ -437,7 +448,7 @@ function bootstrap_(me) {
     if (f.nik === me.nik && f.date >= fbFrom) fb[f.date + '-' + f.meal] = { r: f.r, tags: f.tags, note: f.note };
   });
   return {
-    user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, admin: me.admin },
+    user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, collar: me.collar, admin: me.admin },
     settings: s, now, price: PRICE, months: rg.months, fbTags: FB_TAGS, fbEditDays: FB_EDIT_DAYS,
     reg: myRegs_(me.nik, rg.from, rg.to),
     closures: closures_().filter(c => c.date >= rg.from),
@@ -454,7 +465,7 @@ function saveRegistrations_(me, changes, code) {
   const clean = {};
   changes.forEach(c => {
     if (!c || !isKey_(c.date)) return;
-    if (locked_(c.date, s, now)) { skipped++; return; }
+    if (locked_(c.date, s, now, me.collar)) { skipped++; return; }
     const q = v => Math.max(0, Math.min(s.maxPortions, parseInt(v, 10) || 0));
     clean[c.date] = {
       l: blockOf_(closures, c.date, 'lunch') ? 0 : q(c.l),
@@ -813,18 +824,25 @@ function removeClosure_(g) {
   return adminClosures_();
 }
 
+/** p.cut = { white: { days, time }, blue: { days, time } }; a missing collar is left unchanged. */
 function saveSettings_(p) {
-  const d = parseInt(p.cutDays, 10), t = String(p.cutTime || '');
-  if (!(d >= 1 && d <= 5)) throw new Error('Hari batas tidak valid.');
-  if (!/^\d{2}:\d{2}$/.test(t) || hm_(t) > 23 * 60 + 59) throw new Error('Jam batas tidak valid.');
+  const kv = [];
+  COLLARS.forEach(col => {
+    const c = p.cut && p.cut[col];
+    if (!c) return;
+    const d = parseInt(c.days, 10), t = String(c.time || '');
+    if (!(d >= MIN_CUT_DAYS && d <= MAX_CUT_DAYS)) throw new Error('Hari batas tidak valid.');
+    if (!/^\d{2}:\d{2}$/.test(t) || hm_(t) > 23 * 60 + 59) throw new Error('Jam batas tidak valid.');
+    kv.push([CUT_KEYS[col][0], String(d)], [CUT_KEYS[col][1], t]);
+  });
   withLock_(() => {
     const sh = sheet_('pengaturan'), rows = readTable_('pengaturan').rows;
-    [['batas_hari', String(d)], ['batas_jam', t]].forEach(kv => {
-      const r = rows.find(x => String(x.kunci).toLowerCase() === kv[0]);
-      if (r) sh.getRange(r._row, 2).setValue(kv[1]);
-      else sh.appendRow([kv[0], kv[1], '']);
+    kv.forEach(x => {
+      const r = rows.find(y => String(y.kunci).toLowerCase() === x[0]);
+      if (r) sh.getRange(r._row, 2).setValue(x[1]);
+      else sh.appendRow([x[0], x[1], (DEFAULT_SETTINGS.find(d => d[0] === x[0]) || [])[2] || '']);
     });
-    forget_(['set1'], ['pengaturan']);
+    forget_(['set2'], ['pengaturan']);
   });
   return settings_();
 }

@@ -238,8 +238,10 @@ left join closure_group c on c.id = d.group_id;
 
 | Key | Default | Range | Meaning |
 |---|---|---|---|
-| `batas_hari` (cutDays) | `3` | 1–5 | Registration for a week (Mon–Sun) closes N days **before that Monday**: 5 = Rabu, 4 = Kamis, **3 = Jumat**, 2 = Sabtu, 1 = Minggu. |
-| `batas_jam` (cutTime) | `23:59` | `HH:MM` | Time on the cutoff day at which the week locks (locked when now ≥ this minute). |
+| `batas_hari` (cut.white.days) | `3` | −2–5 | White collar: registration for a week (Mon–Sun) closes N days **before that Monday**: 5 = Rabu, 4 = Kamis, **3 = Jumat**, 2 = Sabtu, 1 = Minggu (week before); 0 = Senin, −1 = Selasa, −2 = Rabu (inside the meal week). |
+| `batas_jam` (cut.white.time) | `23:59` | `HH:MM` | White collar: time on the cutoff day at which the week locks (locked when now ≥ this minute). |
+| `batas_hari_blue` (cut.blue.days) | = `batas_hari` | −2–5 | Same as `batas_hari`, for blue-collar employees. |
+| `batas_jam_blue` (cut.blue.time) | = `batas_jam` | `HH:MM` | Same as `batas_jam`, for blue-collar employees. |
 | `maks_porsi` (maxPortions) | `3` | 1–10 | Max portions per meal per day per employee. |
 
 Constants (not settings today; may become settings): price **Rp 5.000/portion**; lunch window **11:30 – 13:30**; dinner window **18:00 – 20:00**; feedback opens **12:00** (lunch) / **18:30** (dinner); feedback editable until **meal date + 3 days** (inclusive); session length **30 days**.
@@ -270,8 +272,8 @@ All tabs have a header row; columns are matched **by header name, case-insensiti
 ### 4.2 Weekly cutoff / locking
 ```
 weekStart(d)  = Monday of d's week
-cutoff(d)     = (weekStart(d) − cutDays days) at cutTime
-locked(d)     = today > cutoff.date  OR (today == cutoff.date AND minuteOfDay ≥ minutes(cutTime))
+cutoff(d, collar) = (weekStart(d) − cut[collar].days days) at cut[collar].time   // collar of the employee; days may be ≤ 0 (cutoff inside the meal week)
+locked(d)     = d ≤ today OR today > cutoff.date OR (today == cutoff.date AND minuteOfDay ≥ minutes(cutoff time))
 ```
 - Default: the week of Mon 12 Oct locks **Fri 9 Oct 23:59**.
 - Past dates are always locked (their cutoff is earlier).
@@ -354,13 +356,13 @@ Today there is one RPC function `api(action, token, payload)`. Below each action
 | `adminImpact` | `POST /api/admin/closures/impact` | admin | `{ dates[], meal }` | `{ people, portions }` |
 | `addClosure` | `POST /api/admin/closures` | admin | `{ dates[], meal, reason }` | same as `adminClosures` |
 | `removeClosure` | `DELETE /api/admin/closures/:groupId` | admin | — | same as `adminClosures` |
-| `saveSettings` | `PUT /api/admin/settings` | admin | `{ cutDays, cutTime }` | `{ cutDays, cutTime, maxPortions }` |
+| `saveSettings` | `PUT /api/admin/settings` | admin | `{ cut: { white: { days, time }, blue: { days, time } } }` | `{ cut, maxPortions }` |
 
 ### 5.1 Bootstrap payload
 ```jsonc
 {
   "user": { "nik": "20210001", "name": "Rina Wulandari", "dept": "Pemasaran", "store": "Kantor Pusat", "admin": false },
-  "settings": { "cutDays": 3, "cutTime": "23:59", "maxPortions": 3 },
+  "settings": { "cut": { "white": { "days": 3, "time": "23:59" }, "blue": { "days": 3, "time": "23:59" } }, "maxPortions": 3 },
   "now": { "key": "2026-10-05", "min": 845, "ms": 1791186300000 },
   "price": 5000,
   "months": ["2026-10", "2026-11", "2026-12"],          // current + next 2
@@ -428,7 +430,7 @@ Top to bottom:
 
 **Harian**
 - Title "{Senin, 5 Oktober 2026}" + date input (min today−400, max today+120).
-- **Cutoff card**: past → "Sudah lewat · data final"; locked → "Porsi sudah pasti · pendaftaran minggu {W} ditutup {Jumat 2 Oktober, 23:59}"; open → "Masih bisa berubah · ditutup {…} ({x hari y jam} lagi)". Sub "Batas: setiap {Jumat} pukul {23:59} sebelum minggu makan". "Atur batas" opens inline editor: "Pendaftaran ditutup setiap" select (Rabu/Kamis/Jumat/Sabtu/Minggu sebelumnya), "Pukul" time input, "Simpan" / "Batal", note "Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi." Toast "Batas diubah ke {Jumat} {23:59}".
+- **Cutoff card**: past → "Sudah lewat · data final"; locked → "Porsi sudah pasti · pendaftaran minggu {W} ditutup {Jumat 2 Oktober, 23:59}"; open → "Masih bisa berubah · ditutup {…} ({x hari y jam} lagi)". Sub "Batas: setiap {Jumat} pukul {23:59} sebelum minggu makan". "Atur batas" opens inline editor: "Pendaftaran ditutup setiap" select grouped "Minggu sebelumnya" (Rabu … Minggu sebelum minggu makan) / "Minggu makan" (Senin … Rabu di minggu makan) and "Pukul" time input, one row each for White collar and Blue collar (when the two rules differ, the card lists each collar's cutoff separately and shows "Sebagian masih bisa berubah" when only one is locked), "Simpan" / "Batal", note "Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi." Toast "Batas diubah · White collar {Jumat} {23:59} · Blue collar {Kamis} {17:00}".
 - **Stat cards**: Makan siang (value or "Tutup"; sub "{n} karyawan · 11:30 – 13:30" or the closure reason in warning color), Makan malam (dinner color; "18:00 – 20:00"), Total porsi ("{n} karyawan terdaftar").
 - **"Kebutuhan dapur per store"** table: sub "White collar {n} porsi · Blue collar {n} porsi"; buttons "Cetak untuk dapur", "Ekspor untuk dapur"; group header White collar (green rule) / Blue collar (brown rule); columns Store · Siang · Malam · Siang · Malam · Total; total row.
 - **"Detail karyawan"** table: "{n} karyawan"; filters (single selects): Semua waktu makan / Makan siang / Makan malam; Semua store / each store; search "Cari nama, NIK, departemen" (also matches store); "Ekspor detail karyawan". Columns NIK · Nama · Departemen · Store · Siang · Malam, sortable (▲/▼; numeric columns sort descending first; ties by name). Empty states: "Kantin tutup pada tanggal ini." / "Tidak ada karyawan yang cocok." / "Belum ada karyawan terdaftar."
