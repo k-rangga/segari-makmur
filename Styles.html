@@ -178,6 +178,10 @@ main.emp{gap:28px}
 .twd-h{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;min-height:20px}
 .twd-h b{font-size:14px;font-weight:700;white-space:nowrap}
 .twd.past .twd-h b{color:#5d6560}
+/* Store location of a registered day (employee view). */
+.st-loc{display:flex;align-items:center;gap:4px;min-width:0;font-size:12px;font-weight:600;color:#4a524d}
+.st-loc svg{flex:none;color:#1f5f4a}
+.st-loc.sm{font-size:11px;margin-top:auto}
 .badge{font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;background:#1f5f4a;color:#FFFFFF;white-space:nowrap}
 .twm{display:flex;flex-direction:column;gap:4px;min-width:0}
 .twm-r{display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}
@@ -290,9 +294,40 @@ main.emp{gap:28px}
 .sbox-opt.hi,.sbox-opt:hover{background:#f0f2ee}
 .sbox-opt.on{font-weight:700;color:#1f5f4a}
 .sbox-empty{padding:10px;font-size:13px;color:#5d6560}
-.wk-nav{display:flex;align-items:center;gap:10px}
-.wk-nav .btn{width:44px;padding:0;display:flex;align-items:center;justify-content:center}
-.wk-nav .btn:disabled{opacity:.4;cursor:default}
+.rhead{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+/* Week picker: one joined control (‹ week ›) with a list of weeks and their status. */
+.wk{position:relative;display:flex;align-items:stretch;height:44px;border:1px solid #d5d9d4;border-radius:10px;background:#FFFFFF}
+.wk-arr{width:44px;border:0;background:transparent;color:#1d211f;display:flex;align-items:center;justify-content:center}
+.wk-arr:first-child{border-right:1px solid #e3e6e1;border-radius:10px 0 0 10px}
+.wk-arr:last-of-type{border-left:1px solid #e3e6e1;border-radius:0 10px 10px 0}
+.wk-arr:hover:not(:disabled),.wk-btn:hover{background:#f6f7f5}
+.wk-arr:disabled{color:#c5cbc6;cursor:default}
+.wk-btn{min-width:230px;border:0;background:transparent;display:flex;align-items:center;gap:10px;padding:0 12px;color:#1d211f;text-align:left}
+.wk-btn svg:first-child{color:#1f5f4a}
+.wk-btn svg:last-child{color:#5d6560;margin-left:auto}
+.wk-t{display:flex;flex-direction:column;line-height:1.15}
+.wk-t b{font-size:15px;font-weight:700;white-space:nowrap}
+.wk-t small{font-size:12px;color:#5d6560;white-space:nowrap}
+.wk-pop{position:absolute;z-index:45;top:calc(100% + 6px);left:0;width:330px;max-width:calc(100vw - 32px);background:#FFFFFF;border:1px solid #e3e6e1;border-radius:12px;box-shadow:0 8px 24px rgba(20,24,22,0.14);padding:4px}
+.wk-list{max-height:340px;overflow-y:auto;display:flex;flex-direction:column}
+.wk-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:#1d211f;text-align:left}
+.wk-opt:hover{background:#f6f7f5}
+.wk-opt.on{background:#eef5f1;box-shadow:inset 3px 0 0 #1f5f4a}
+.wk-o{display:flex;flex-direction:column;line-height:1.2}
+.wk-o b{font-size:14px;font-weight:600}
+.wk-o small{font-size:12px;color:#5d6560}
+.wk-opt.cur .wk-o small{color:#1f5f4a;font-weight:600}
+.wk-foot{border-top:1px solid #EEF0EC;padding:8px 10px 6px}
+.pill.lk-run{background:#e4f3ea;color:#194e3d;box-shadow:inset 0 0 0 1px #1f5f4a}
+/* Download menu */
+.dl{position:relative}
+.dl-btn{display:flex;align-items:center;gap:8px}
+.dl-btn svg:last-child{color:#5d6560}
+.dl-pop{position:absolute;z-index:45;top:calc(100% + 6px);right:0;width:280px;background:#FFFFFF;border:1px solid #e3e6e1;border-radius:12px;box-shadow:0 8px 24px rgba(20,24,22,0.14);padding:4px;display:flex;flex-direction:column}
+.dl-opt{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:0;border-radius:8px;background:transparent;text-align:left;color:#1d211f}
+.dl-opt:hover{background:#f6f7f5}
+.dl-opt b{font-size:14px;font-weight:600}
+.dl-opt span{font-size:12px;color:#5d6560}
 .vchip{display:flex;align-items:center;gap:8px;height:44px;padding:0 4px 0 14px;border-radius:999px;background:#e4f3ea;color:#194e3d;font-size:14px;font-weight:600;white-space:nowrap}
 .vchip button{width:36px;height:36px;border-radius:50%;border:0;background:transparent;color:#194e3d;font-size:20px;line-height:1;padding:0}
 .vchip button:hover{background:#d5e6dc}

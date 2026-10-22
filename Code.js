@@ -441,10 +441,11 @@ function myRange_(now) {
   return { from, to: monthEnd_(addMonths_(ym, 2)), months: [ym, addMonths_(ym, 1), addMonths_(ym, 2)] };
 }
 
-function myRegs_(nik, from, to) {
+/** The employee's registrations by date; `st` = store location of that day (their own store on rows saved before the Store column). */
+function myRegs_(me, from, to) {
   const out = {};
   regsMonths_(monthsBetween_(from, to)).forEach(r => {
-    if (r.nik === nik && r.date >= from && r.date <= to && (r.l || r.d)) out[r.date] = { l: r.l, d: r.d };
+    if (r.nik === me.nik && r.date >= from && r.date <= to && (r.l || r.d)) out[r.date] = { l: r.l, d: r.d, st: r.st || me.store };
   });
   return out;
 }
@@ -459,7 +460,7 @@ function bootstrap_(me) {
   return {
     user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, collar: me.collar, admin: me.admin },
     settings: s, now, price: PRICE, months: rg.months, fbTags: FB_TAGS, fbEditDays: FB_EDIT_DAYS, stores: storeChoices_(),
-    reg: myRegs_(me.nik, rg.from, rg.to),
+    reg: myRegs_(me, rg.from, rg.to),
     closures: closures_().filter(c => c.date >= rg.from),
     menus: menus_(addDays_(now.key, -14), rg.to),
     fb,
@@ -511,9 +512,7 @@ function saveRegistrations_(me, changes, code, store) {
     }
   });
   // The caller's registrations after this save (cache is already up to date).
-  regsMonths_(monthsBetween_(rg.from, rg.to)).forEach(r => {
-    if (r.nik === me.nik && r.date >= rg.from && r.date <= rg.to) reg[r.date] = { l: r.l, d: r.d };
-  });
+  Object.assign(reg, myRegs_(me, rg.from, rg.to));
   return { reg, saved: dates.length, skipped, voucher: used };
 }
 

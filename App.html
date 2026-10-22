@@ -63,7 +63,10 @@ const ICON = {
   out: s => svg(s, '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 8l-4 4 4 4M6 12h10"></path>'),
   left: s => svg(s, '<path d="M15 6l-6 6 6 6"></path>', 2),
   right: s => svg(s, '<path d="M9 6l6 6-6 6"></path>', 2),
-  clock: s => svg(s, '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>')
+  clock: s => svg(s, '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>'),
+  down: s => svg(s, '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path>'),
+  pin: s => svg(s, '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.5"></circle>'),
+  chev: s => svg(s, '<path d="M6 9l6 6 6-6"></path>', 2)
 };
 
 // ------------------------------------------------------------ state
@@ -75,7 +78,7 @@ const S = {
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
   stores: [], store: '', storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
-  hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
+  hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
@@ -132,6 +135,8 @@ function leftTxt(m) {
 }
 const blockOf = (list, k, meal) => list.find(c => c.date === k && (c.meal === 'both' || c.meal === meal)) || null;
 const savedQ = (k, mk) => (S.saved[k] || {})[mk] || 0;
+// Store location of a registered day (sent with the registration).
+const savedSt = k => { const v = S.saved[k]; return v && (v.l || v.d) ? v.st || '' : ''; };
 const selQ = (k, mk) => (S.sel[k] || {})[mk] || 0;
 const mealStarted = (k, meal, now) => k < now.key || (k === now.key && now.min >= (meal === 'lunch' ? LUNCH_FB_FROM : DINNER_FB_FROM));
 const fbOpen = (k, now) => now.key <= addDays(k, S.fbEditDays);
@@ -170,6 +175,7 @@ function renderNow() {
     if (el) { el.focus(); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch (e) { /* no selection API */ } }
   }
   if (S.dp) dpPaint();
+  if (S.hr.wkScroll) { S.hr.wkScroll = false; const o = root.querySelector('.wk-opt.on') || root.querySelector('.wk-opt.cur'); if (o) o.scrollIntoView({ block: 'center' }); }
   if (S.storeFocus) { S.storeFocus = false; const q = root.querySelector('[data-f="storeQ"]'); if (q) q.focus(); }
   ensureData();
 }
@@ -355,7 +361,9 @@ function thisWeekView(now) {
       }
       return '<div class="twm"><div class="twm-r"><span class="sq on' + dn + '">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + fb + '</div>';
     }).join('');
-    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows + '</div>';
+    const st = savedSt(k);
+    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows +
+      (st ? '<span class="st-loc" title="Lokasi store">' + ICON.pin(13) + '<span class="ell">' + esc(st) + '</span></span>' : '') + '</div>';
   }).join('');
   return '<div style="display:flex;flex-direction:column;gap:12px"><div class="tw-h"><b>Jadwal makanmu minggu ini</b><span>' + weekRange(ws) + ' · ' + n + ' porsi · ' + rp(n * S.price) + '</span></div>' +
     '<div style="overflow-x:auto" data-keep="tw"><div class="tw">' + cards + '</div></div></div>';
@@ -453,7 +461,9 @@ function cellView(k, ym, now) {
     const shown = q || sq;
     return '<button class="mc ' + st + (mk === 'd' ? ' dn' : '') + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span></button>';
   }).join('');
-  return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips + '</div>';
+  const st = full ? '' : savedSt(k);
+  return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : st ? ' · ' + st : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips +
+    (st ? '<span class="st-loc sm">' + ICON.pin(12) + '<span class="ell">' + esc(st) + '</span></span>' : '') + '</div>';
 }
 
 // Cost of newly added portions per month in the pending changes, and how a voucher splits over it.
@@ -545,6 +555,7 @@ function popView() {
     '<div class="qty"><b>' + q + ' porsi</b><span>' + rp(q * S.price) + '</span></div>' +
     '<button class="step" data-a="qty" data-n="1" title="Tambah porsi"' + (q >= max ? ' disabled' : '') + '>+</button></div>' +
     '<span class="note">1 porsi untuk kamu. Porsi tambahan untuk tamu atau dibawa pulang, maks. ' + max + '.</span>' +
+    (savedSt(P.k) ? '<span class="st-loc">' + ICON.pin(13) + '<span class="ell">Terdaftar di ' + esc(savedSt(P.k)) + '</span></span>' : '') +
     '<div class="pop-a"><button class="del" data-a="popRemove">Hapus</button><button class="btn-primary" style="padding:0;font-weight:600" data-a="closePop">Selesai</button></div></div>';
 }
 
@@ -707,7 +718,7 @@ function dayView() {
     statView('Makan malam', day.db ? 'Tutup' : nf(s.d), day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00', !!day.db, null, 'dinner') +
     statView('Total porsi', nf(s.l + s.d), s.n + ' karyawan terdaftar') + '</div>';
   h += storeTableView('Kebutuhan dapur per store', splitOfRows(day.rows, day.stores),
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="openPrint">Cetak untuk dapur</button><button class="btn" data-a="exportKitchen">Ekspor untuk dapur</button></div>');
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="openPrint">Cetak untuk dapur</button><button class="btn" data-a="exportPdf"' + (S.hr.pdfBusy ? ' disabled' : '') + '>' + (S.hr.pdfBusy ? 'Menyiapkan PDF…' : 'Unduh PDF') + '</button><button class="btn" data-a="exportKitchen">Ekspor untuk dapur</button></div>');
 
   const rows = detailRows(day);
   const sortCols = [['nik', 'NIK', 0], ['name', 'Nama', 0], ['dept', 'Departemen', 0], ['store', 'Store', 0], ['l', 'Siang', 1], ['d', 'Malam', 1]];
@@ -806,10 +817,7 @@ function rangeView(m, now, long, prev, prevLabel) {
   const wd = R.days.filter(x => dow(x.date) < 5);
   const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
   const peak = R.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, R.days[0]);
-  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
-    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner', P && deltaView(tD, P[1], prevLabel)) +
-    statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
-  h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
+  // Top-down: the per-day table first, then the period totals and the store split.
   const max = Math.max(1, ...R.days.map(x => x.l + x.d));
   h += '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
     R.days.map(x => {
@@ -825,6 +833,10 @@ function rangeView(m, now, long, prev, prevLabel) {
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
     }).join('') +
     '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
+  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
+    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner', P && deltaView(tD, P[1], prevLabel)) +
+    statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
+  h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
   return h;
 }
 
@@ -833,25 +845,58 @@ const prevMonthOf = yms => yms.length === 1 ? addMonths(yms[0], -1) : null;
 function monthView() {
   const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1, ready = !yms.some(y => !H.monthCache[y]);
   const pm = prevMonthOf(yms), m = ready ? monthAgg(yms) : null;
-  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + (m ? rangeStoreSelect(rangeData(m, 'all').all) : '') + '<div class="spacer"></div>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
+  const h = '<div class="rhead">' + msView('months') + (m ? rangeStoreSelect(rangeData(m, 'all').all) : '') + '<div class="spacer"></div>' + dlMenu() + '</div>';
   if (!m) return h + skelView(10);
   return h + rangeView(m, now, multi, pm && H.monthCache[pm] ? H.monthCache[pm] : null, pm ? monthName(pm) : '');
 }
 
 // Weeks run Monday–Sunday; S.hr.ws is the Monday. Same date limits as the daily view.
 const weekMin = now => addDays(now.key, -400), weekMax = now => addDays(now.key, 120);
+const thisWeek = now => addDays(now.key, -dow(now.key));
+function weekTag(ws, now) {
+  const n = Math.round((k2t(ws) - k2t(thisWeek(now))) / (7 * 864e5));
+  return n === 0 ? 'Minggu ini' : n === -1 ? 'Minggu lalu' : n === 1 ? 'Minggu depan' : n < 0 ? -n + ' minggu lalu' : n + ' minggu lagi';
+}
+// Week-level status: past weeks are final, the current week is running, future weeks follow the collar cutoffs.
+function weekLock(ws, now) {
+  if (addDays(ws, 6) < now.key) return 'final';
+  if (ws <= now.key) return 'run';
+  return dayLock(ws, now).st;
+}
+LOCK_PILL.run = 'Berjalan';
+// Picker list: 12 weeks back to 8 weeks ahead (within the date limits).
+function weekOptions(now) {
+  const out = [];
+  for (let i = -12; i <= 8; i++) { const ws = addDays(thisWeek(now), i * 7); if (addDays(ws, 6) >= weekMin(now) && ws <= weekMax(now)) out.push(ws); }
+  return out;
+}
+const weekLabel = ws => weekRange(ws) + ' ' + addDays(ws, 6).slice(0, 4);
+function weekPicker(now) {
+  const H = S.hr, ws = H.ws, prevOk = addDays(ws, -1) >= weekMin(now), nextOk = addDays(ws, 7) <= weekMax(now);
+  let h = '<div class="wk" data-wk-root><button class="wk-arr" data-a="wkNav" data-n="-7" title="Minggu sebelumnya" aria-label="Minggu sebelumnya"' + (prevOk ? '' : ' disabled') + '>' + ICON.left(18) + '</button>' +
+    '<button class="wk-btn" data-a="wkToggle" aria-haspopup="listbox" aria-expanded="' + H.wkOpen + '">' + ICON.cal(18) +
+    '<span class="wk-t"><b>' + weekLabel(ws) + '</b><small>' + weekTag(ws, now) + ' · Sen – Min</small></span>' + ICON.chev(16) + '</button>' +
+    '<button class="wk-arr" data-a="wkNav" data-n="7" title="Minggu berikutnya" aria-label="Minggu berikutnya"' + (nextOk ? '' : ' disabled') + '>' + ICON.right(18) + '</button>';
+  if (H.wkOpen) {
+    h += '<div class="wk-pop" role="listbox" aria-label="Pilih minggu"><div class="wk-list" data-keep="wkList">' + weekOptions(now).map(w => {
+      const st = weekLock(w, now), on = w === ws;
+      return '<button type="button" role="option" aria-selected="' + on + '" class="wk-opt' + (on ? ' on' : '') + (w === thisWeek(now) ? ' cur' : '') + '" data-a="wkPick" data-ws="' + w + '">' +
+        '<span class="wk-o"><b>' + weekRange(w) + '</b><small>' + weekTag(w, now) + '</small></span><span class="pill sm lk-' + st + '">' + LOCK_PILL[st] + '</span></button>';
+    }).join('') + '</div>' +
+      (ws !== thisWeek(now) ? '<div class="wk-foot"><button class="link" data-a="wkToday">Ke minggu ini</button></div>' : '') + '</div>';
+  }
+  return h + '</div>';
+}
+// "Unduh" menu for the weekly and monthly recaps: PDF and the two CSVs.
+function dlMenu() {
+  const H = S.hr;
+  return '<div class="dl" data-dl-root><button class="btn lg dl-btn" data-a="dlToggle" aria-haspopup="menu" aria-expanded="' + H.dl + '"' + (H.pdfBusy ? ' disabled' : '') + '>' + ICON.down(18) + (H.pdfBusy ? 'Menyiapkan PDF…' : 'Unduh') + ICON.chev(16) + '</button>' +
+    (H.dl ? '<div class="dl-pop" role="menu">' + [['exportPdf', 'PDF rekap', 'Dengan logo Segari, siap dicetak'], ['exportKitchen', 'CSV untuk dapur', 'Porsi per hari dan per store'], ['exportDetail', 'CSV detail karyawan', 'Satu baris per karyawan per hari']]
+      .map(o => '<button type="button" role="menuitem" class="dl-opt" data-a="' + o[0] + '"><b>' + o[1] + '</b><span>' + o[2] + '</span></button>').join('') + '</div>' : '') + '</div>';
+}
 function weekView() {
-  const H = S.hr, now = nowJ(), ws = H.ws, w = H.weekCache[ws], thisWs = addDays(now.key, -dow(now.key));
-  const prevOk = addDays(ws, -1) >= weekMin(now), nextOk = addDays(ws, 7) <= weekMax(now);
-  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
-    '<div class="wk-nav"><button class="btn lg" data-a="wkNav" data-n="-7" title="Minggu sebelumnya" aria-label="Minggu sebelumnya"' + (prevOk ? '' : ' disabled') + '>' + ICON.left(18) + '</button>' +
-    '<span class="h20">' + periodTitle(ws, addDays(ws, 6)) + '</span>' +
-    '<button class="btn lg" data-a="wkNav" data-n="7" title="Minggu berikutnya" aria-label="Minggu berikutnya"' + (nextOk ? '' : ' disabled') + '>' + ICON.right(18) + '</button></div>' +
-    (ws === thisWs ? '<span class="pill buka">Minggu ini</span>' : '<button class="link" data-a="wkToday">Ke minggu ini</button>') +
-    (w ? rangeStoreSelect(rangeData(w, 'all').all) : '') + '<div class="spacer"></div>' +
-    '<input type="date" class="input lg" style="width:200px" data-ch="hrWeek" value="' + ws + '" min="' + weekMin(now) + '" max="' + weekMax(now) + '" title="Pilih tanggal mana saja; minggu dimulai Senin" aria-label="Pilih minggu">' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
+  const H = S.hr, now = nowJ(), ws = H.ws, w = H.weekCache[ws];
+  const h = '<div class="rhead">' + weekPicker(now) + (w ? rangeStoreSelect(rangeData(w, 'all').all) : '') + '<div class="spacer"></div>' + dlMenu() + '</div>';
   if (!w) return h + skelView(7);
   // Cutoff card for the week: the first day that can still change (tomorrow, or Monday for a future week).
   const we = addDays(ws, 6), tm = addDays(now.key, 1), ck = ws > now.key ? ws : tm <= we ? tm : we;
@@ -1230,6 +1275,149 @@ const collarName = c => c === 'blue' ? 'Blue collar' : 'White collar';
 const monthsSlug = yms => yms.length === 1 ? yms[0] : yms[0] + '_' + yms[yms.length - 1] + '_' + yms.length + 'bulan';
 const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi),Store asal';
 
+
+// ------------------------------------------------------------ PDF export
+// jsPDF + autoTable load on first use; the official Segari logo SVG is rasterised to PNG for the header.
+const PDF_LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'];
+let pdfLibs = null, logoData = null;
+function loadScript(src) {
+  return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { el.remove(); rej(new Error('Library PDF gagal dimuat. Periksa koneksi lalu coba lagi.')); }; document.head.appendChild(el); });
+}
+function pdfReady() {
+  if (!pdfLibs) pdfLibs = PDF_LIBS.reduce((p, src) => p.then(() => loadScript(src)), Promise.resolve()).catch(e => { pdfLibs = null; throw e; });
+  return pdfLibs;
+}
+function logoPng() {
+  if (logoData) return Promise.resolve(logoData);
+  return new Promise(res => {
+    const img = new Image();
+    // ~470 px wide is sharp at the 34 mm print size and keeps the PDF small.
+    img.onload = () => { const c = document.createElement('canvas'); c.width = 470; c.height = 193; c.getContext('2d').drawImage(img, 0, 0, 470, 193); res(logoData = c.toDataURL('image/png')); };
+    img.onerror = () => res(null);                // PDF still works without the logo
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 20 940 386" width="940" height="386">' + LOGO_PATHS + '</svg>');
+  });
+}
+const PDF_GREEN = [31, 95, 74], PDF_INK = [29, 33, 31], PDF_MUTED = [93, 101, 96], PDF_LINE = [227, 230, 225];
+const stampNow = () => { const n = nowJ(); return fmt(n.key) + ' ' + n.key.slice(0, 4) + ', ' + String(Math.floor(n.min / 60)).padStart(2, '0') + ':' + String(n.min % 60).padStart(2, '0'); };
+
+// spec: { file, kind, period, meta, boxes: [[label, value, sub]], sections: [{ title, sub, head, body, foot, cols }] }
+async function buildPdf(spec) {
+  await pdfReady();
+  const logo = await logoPng();
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' }), W = 210, M = 14;
+  if (logo) doc.addImage(logo, 'PNG', M, 11, 34, 34 * 386 / 940, 'logo', 'FAST');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_MUTED);
+  doc.text('Program Makan', M + 37, 19);
+  doc.text('Dicetak ' + stampNow(), W - M, 15, { align: 'right' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...PDF_GREEN);
+  doc.text(spec.kind, W - M, 20, { align: 'right' });
+  doc.setDrawColor(...PDF_LINE); doc.line(M, 27, W - M, 27);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(...PDF_INK);
+  doc.text('Rekap porsi', M, 37);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+  doc.text(spec.period, M, 43.5);
+  doc.setFontSize(9); doc.setTextColor(...PDF_MUTED);
+  doc.text(doc.splitTextToSize(spec.meta, W - 2 * M), M, 49);
+  let y = 55;
+  const bw = (W - 2 * M - 8) / 3;
+  spec.boxes.forEach((b, i) => {
+    const x = M + i * (bw + 4);
+    doc.setDrawColor(...PDF_LINE); doc.setFillColor(250, 251, 249); doc.roundedRect(x, y, bw, 22, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...PDF_MUTED); doc.text(b[0], x + 4, y + 6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...(i === 1 ? [138, 90, 11] : PDF_INK)); doc.text(b[1], x + 4, y + 14);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_MUTED); doc.text(doc.splitTextToSize(b[2], bw - 8)[0], x + 4, y + 19);
+  });
+  y += 30;
+  spec.sections.forEach(sec => {
+    if (y > 260) { doc.addPage(); y = 18; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_INK); doc.text(sec.title, M, y);
+    if (sec.sub) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...PDF_MUTED); doc.text(sec.sub, M, y + 4.5); }
+    doc.autoTable({
+      startY: y + (sec.sub ? 7 : 3), margin: { left: M, right: M }, head: sec.head, body: sec.body, foot: sec.foot || undefined, showFoot: 'lastPage',
+      theme: 'grid', styles: { font: 'helvetica', fontSize: sec.small ? 7.5 : 8.5, cellPadding: 1.8, textColor: PDF_INK, lineColor: PDF_LINE, lineWidth: 0.2 },
+      headStyles: { fillColor: PDF_GREEN, textColor: 255, fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [238, 240, 236], textColor: PDF_INK, fontStyle: 'bold' },
+      columnStyles: sec.cols || {}, alternateRowStyles: { fillColor: [250, 251, 249] },
+      // Totals line up with the numbers above them.
+      didParseCell: c => { const cs = (sec.cols || {})[c.column.index]; if (c.section === 'foot' && cs && cs.halign) c.cell.styles.halign = cs.halign; }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  });
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_MUTED);
+    doc.text('Segari Program Makan · ' + spec.kind + ' · ' + spec.period, M, 290);
+    doc.text('Halaman ' + i + ' dari ' + n, W - M, 290, { align: 'right' });
+  }
+  doc.save(spec.file);
+}
+
+// Shared table pieces
+const pdfNum = v => v ? nf(v) : '–';
+const PDF_RIGHT = { halign: 'right' };
+// Only stores with portions are listed, so the kitchen sheet stays short.
+function pdfStoreSection(agg, title) {
+  const X = agg.cross || {}, xOf = st => (X[st] || [0, 0])[0] + (X[st] || [0, 0])[1];
+  const xt = agg.rows.reduce((a, r) => a + xOf(r.store), 0), rows = agg.rows.filter(r => r.total), hidden = agg.rows.length - rows.length;
+  return {
+    title, sub: 'White collar ' + nf(agg.t[0] + agg.t[1]) + ' porsi · Blue collar ' + nf(agg.t[2] + agg.t[3]) + ' porsi' + (xt ? ' · ' + nf(xt) + ' porsi dari karyawan store lain' : '') + (hidden ? ' · ' + hidden + ' store tanpa porsi tidak ditampilkan' : ''),
+    head: [[{ content: 'Store', rowSpan: 2 }, { content: 'White collar', colSpan: 2 }, { content: 'Blue collar', colSpan: 2 }, { content: 'Total', rowSpan: 2 }, { content: 'Dari store lain', rowSpan: 2 }], ['Siang', 'Malam', 'Siang', 'Malam']],
+    body: rows.length ? rows.map(r => [r.store].concat(r.v.map(pdfNum), [pdfNum(r.total), pdfNum(xOf(r.store))])) : [[{ content: 'Belum ada pendaftaran.', colSpan: 7 }]],
+    foot: [['Total'].concat(agg.t.map(pdfNum), [pdfNum(agg.total), pdfNum(xt)])],
+    cols: { 0: { fontStyle: 'bold' }, 1: PDF_RIGHT, 2: PDF_RIGHT, 3: PDF_RIGHT, 4: PDF_RIGHT, 5: Object.assign({ fontStyle: 'bold' }, PDF_RIGHT), 6: PDF_RIGHT }
+  };
+}
+function pdfDayStatus(x, now) {
+  const full = x.lb && x.db;
+  if (full) return 'Tutup · ' + x.lb.reason;
+  const st = dow(x.date) >= 5 && !(x.l + x.d) ? 'Libur' : x.lb ? 'Siang tutup' : x.db ? 'Malam tutup' : 'Buka';
+  return st + ' · ' + LOCK_PILL[dayLock(x.date, now).st];
+}
+function pdfDaysSection(days, now) {
+  const [l, d] = sumDays(days);
+  return {
+    title: 'Porsi per hari', head: [['Tanggal', 'Status', 'Siang', 'Malam', 'Total']],
+    body: days.map(x => [fmt(x.date), pdfDayStatus(x, now), x.lb ? 'Tutup' : pdfNum(x.l), x.db ? 'Tutup' : pdfNum(x.d), pdfNum(x.l + x.d)]),
+    foot: [['Total', '', pdfNum(l), pdfNum(d), pdfNum(l + d)]],
+    cols: { 0: { cellWidth: 28 }, 2: PDF_RIGHT, 3: PDF_RIGHT, 4: Object.assign({ fontStyle: 'bold' }, PDF_RIGHT) }
+  };
+}
+// Week only: each store's siang / malam per day, the kitchen's shopping list.
+function pdfMatrixSection(m, stores) {
+  const days = m.days, cell = (st, x) => { const v = (x.s || {})[st] || [0, 0, 0, 0]; const l = v[0] + v[2], d = v[1] + v[3]; return l || d ? l + ' / ' + d : '–'; };
+  const rows = stores.slice().sort(byStoreName).filter(st => days.some(x => (x.s || {})[st]));
+  const tot = st => days.reduce((a, x) => { const v = (x.s || {})[st] || [0, 0, 0, 0]; return a + v[0] + v[1] + v[2] + v[3]; }, 0);
+  return {
+    title: 'Per store per hari', sub: 'Siang / malam', small: true,
+    head: [['Store'].concat(days.map(x => DAYS[dow(x.date)] + ' ' + dnum(x.date)), ['Total'])],
+    body: rows.length ? rows.map(st => [st].concat(days.map(x => cell(st, x)), [nf(tot(st))])) : [[{ content: 'Belum ada pendaftaran.', colSpan: days.length + 2 }]],
+    cols: Object.assign({ 0: { fontStyle: 'bold' } }, ...days.map((_, i) => ({ [i + 1]: { halign: 'center' } })), { [days.length + 1]: Object.assign({ fontStyle: 'bold' }, PDF_RIGHT) })
+  };
+}
+function rangePdfSpec(m, kind, period, file, extra) {
+  const now = nowJ(), H = S.hr, R = rangeData(m, H.rStore), [l, d] = sumDays(R.days), agg = Object.assign(storeAgg(R.stores, R.split), { cross: R.cross });
+  return {
+    file, kind, period,
+    meta: 'Store: ' + (H.rStore === 'all' ? 'Semua store' : H.rStore) + ' · ' + R.days.length + ' hari · Rp ' + nf(S.price * (l + d)) + ' total biaya porsi',
+    boxes: [['Makan siang', nf(l), 'porsi'], ['Makan malam', nf(d), 'porsi'], ['Total porsi', nf(l + d), extra || '']],
+    sections: [pdfDaysSection(R.days, now)].concat(kind === 'Mingguan' ? [pdfMatrixSection(m, H.rStore === 'all' ? R.all : [H.rStore])] : [], [pdfStoreSection(agg, 'Per store')])
+  };
+}
+function dayPdfSpec(day) {
+  const now = nowJ(), s = daySums(day), agg = splitOfRows(day.rows, day.stores), ci = cutInfo(day.date, now);
+  const rows = day.rows.slice().sort((a, b) => byStoreName(a.store, b.store) || a.name.localeCompare(b.name));
+  return {
+    file: 'rekap-porsi-' + day.date + '.pdf', kind: 'Harian', period: fmtLong(day.date), meta: ci.short + ' · ' + ci.sub,
+    boxes: [['Makan siang', day.lb ? 'Tutup' : nf(s.l), day.lb ? day.lb.reason : s.pl + ' karyawan · 11:30 – 13:30'], ['Makan malam', day.db ? 'Tutup' : nf(s.d), day.db ? day.db.reason : s.pd + ' karyawan · 18:00 – 20:00'], ['Total porsi', nf(s.l + s.d), s.n + ' karyawan terdaftar']],
+    sections: [pdfStoreSection(agg, 'Kebutuhan dapur per store'), {
+      title: 'Detail karyawan', sub: rows.length + ' karyawan', small: true,
+      head: [['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Siang', 'Malam']],
+      body: rows.length ? rows.map(r => [r.nik, r.name, r.dept, r.store + (r.home && r.home !== r.store ? ' (asal ' + r.home + ')' : ''), collarName(r.collar), pdfNum(r.l), pdfNum(r.d)]) : [[{ content: 'Belum ada karyawan terdaftar.', colSpan: 7 }]],
+      cols: { 5: PDF_RIGHT, 6: PDF_RIGHT }
+    }]
+  };
+}
+
 // ------------------------------------------------------------ actions
 const A = {
   nav(el) { S.view = el.dataset.v; ls.set('pm-view', S.view); S.pop = null; render(); },
@@ -1282,7 +1470,7 @@ const A = {
     if (tentative) { tentative.discount = sumObj(tentative.split); S.myVouchers.push(tentative); S.voucher = null; }
     pend.forEach(c => {
       before[c.date] = S.saved[c.date] ? clone(S.saved[c.date]) : null;
-      if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d }; else delete S.saved[c.date];
+      if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d, st: store }; else delete S.saved[c.date];
     });
     S.syncing++; S.pop = null;
     flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (store ? ' · ' + store : '') + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
@@ -1336,8 +1524,11 @@ const A = {
   // admin recap
   hrMode(el) { S.hr.mode = el.dataset.v; render(); },
   sort(el) { const k = el.dataset.k, so = S.hr.sort, num = k === 'l' || k === 'd'; S.hr.sort = { k, dir: so.k === k ? -so.dir : num ? -1 : 1 }; render(); },
-  wkNav(el) { S.hr.ws = addDays(S.hr.ws, Number(el.dataset.n)); render(); },
-  wkToday() { const now = nowJ(); S.hr.ws = addDays(now.key, -dow(now.key)); render(); },
+  wkNav(el) { S.hr.ws = addDays(S.hr.ws, Number(el.dataset.n)); S.hr.wkOpen = false; render(); },
+  wkToday() { S.hr.ws = thisWeek(nowJ()); S.hr.wkOpen = false; render(); },
+  wkToggle() { S.hr.wkOpen = !S.hr.wkOpen; S.hr.wkScroll = S.hr.wkOpen; S.ms = null; S.hr.dl = false; render(); },
+  wkPick(el) { S.hr.ws = el.dataset.ws; S.hr.wkOpen = false; render(); },
+  dlToggle() { S.hr.dl = !S.hr.dl; S.hr.wkOpen = false; S.ms = null; render(); },
   openDay(el) { S.hr.mode = 'day'; S.hr.date = el.dataset.k; S.hr.meal = 'all'; render(); },
   cutEdit() { const c = S.settings.cut; S.hr.cutEdit = true; S.hr.cut = { white: Object.assign({}, c.white), blue: Object.assign({}, c.blue) }; render(); },
   cutCancel() { S.hr.cutEdit = false; render(); },
@@ -1396,6 +1587,28 @@ const A = {
     }
     const d = curDay(); if (!d) return;
     download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d, csvq(r.home || r.store)].join(','))), 'Detail karyawan diekspor');
+  },
+  async exportPdf() {
+    const H = S.hr;
+    let spec = null;
+    if (H.mode === 'week') {
+      const w = H.weekCache[H.ws];
+      if (!w) return flash('Data minggu masih dimuat');
+      spec = rangePdfSpec(w, 'Mingguan', periodTitle(H.ws, addDays(H.ws, 6)), 'rekap-porsi-minggu-' + H.ws + (H.rStore === 'all' ? '' : '-' + H.rStore.replace(/\W+/g, '_')) + '.pdf', weekTag(H.ws, nowJ()));
+    } else if (H.mode === 'month') {
+      const yms = selMonths();
+      if (yms.some(y => !H.monthCache[y])) return flash('Data bulan masih dimuat');
+      const m = monthAgg(yms), last = m.days[m.days.length - 1].date;
+      spec = rangePdfSpec(m, 'Bulanan', yms.length === 1 ? monthName(yms[0]) + ' ' + yms[0].slice(0, 4) : periodTitle(m.days[0].date, last), 'rekap-porsi-' + monthsSlug(yms) + (H.rStore === 'all' ? '' : '-' + H.rStore.replace(/\W+/g, '_')) + '.pdf', yms.length + ' bulan');
+    } else {
+      const d = curDay();
+      if (!d) return flash('Data hari masih dimuat');
+      spec = dayPdfSpec(d);
+    }
+    H.pdfBusy = true; render();
+    try { await buildPdf(spec); flash('PDF diunduh · ' + spec.file); }
+    catch (e) { flash(errMsg(e)); }
+    finally { H.pdfBusy = false; render(); }
   },
   exportFb() {
     if (!S.hr.fb) return;
@@ -1516,7 +1729,6 @@ const CH = {
     flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
   },
   rStore(v) { S.hr.rStore = v; render(); },
-  hrWeek(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.ws = addDays(v, -dow(v)); render(); } },
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
   hrStore(v) { S.hr.store = v; render(); },
@@ -1549,6 +1761,8 @@ function init() {
   root.addEventListener('click', e => {
     if (S.ms && !e.target.closest('[data-ms-root]')) { S.ms = null; render(); }
     if (S.storeOpen && !e.target.closest('[data-store-root]')) { closeStore(); render(); }
+    if (S.hr.wkOpen && !e.target.closest('[data-wk-root]')) { S.hr.wkOpen = false; render(); }
+    if (S.hr.dl && (!e.target.closest('[data-dl-root]') || e.target.closest('.dl-opt'))) { S.hr.dl = false; render(); }
     const c = chipOf(e.target);
     if (c) {
       if (S.suppress) { S.suppress = false; return; }
@@ -1600,6 +1814,7 @@ function init() {
     }
     if (e.key !== 'Escape') return;
     if (S.storeOpen) { closeStore(); return render(); }
+    if (S.hr.wkOpen || S.hr.dl) { S.hr.wkOpen = false; S.hr.dl = false; return render(); }
     if (S.ms) { S.ms = null; return render(); }
     if (S.dp) { S.dp = null; return render(); }
     if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
