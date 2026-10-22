@@ -327,6 +327,38 @@ main.emp{gap:28px}
 .wk-o small{font-size:12px;color:#5d6560}
 .wk-opt.cur .wk-o small{color:#1f5f4a;font-weight:600}
 .wk-foot{border-top:1px solid #EEF0EC;padding:8px 10px 6px}
+.wk.day .wk-btn{min-width:280px}
+.day-in{position:absolute;left:50%;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
+/* Day view: menu of the day + rating */
+.dmenu{border:1px solid #e3e6e1;background:#FFFFFF;border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.dmenu-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 24px;width:100%}
+.dm{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dm .l{font-size:13px;color:#5d6560}
+.dm b{font-size:16px;font-weight:600}
+.dm .s{font-size:13px;color:#4a524d}
+.dm .s.warn{color:#8a5a0b;font-weight:600}
+.grp-h{background:#f6f7f5;font-size:13px;color:#4a524d;padding-top:8px;padding-bottom:8px}
+.grp-h b{color:#1d211f}
+.grp-h .r{font-weight:700;color:#1d211f}
+/* Week view: store x day matrix, trend bars, missing list */
+.mx-h{text-align:center;font-size:12px}
+.mx-h.today{color:#1f5f4a;font-weight:700}
+.mx{display:flex;justify-content:center;align-items:baseline;gap:3px;font-variant-numeric:tabular-nums}
+.mx b{font-weight:600;color:#1d211f}
+.mx b.dn{color:#8a5a0b}
+.mx i{font-style:normal;color:#c5cbc6;font-size:12px}
+.mx.z{color:#c5cbc6}
+.tr.tot .mx b{font-weight:700}
+.wk-c{border:0;background:transparent;padding:0;cursor:pointer}
+.wk-c .stk{display:flex;flex-direction:column;width:100%;max-width:48px;border-radius:6px 6px 0 0;overflow:hidden}
+.wk-c .stk i{display:block;min-height:0;border-radius:0;max-width:none}
+.wk-c.on span:last-child{color:#1f5f4a;font-weight:700}
+.wk-c.on .stk{box-shadow:0 0 0 2px #1f5f4a}
+.miss{display:flex;flex-direction:column;max-height:360px;overflow-y:auto;border-top:1px solid #EEF0EC}
+.miss-g{display:grid;grid-template-columns:180px minmax(0,1fr);gap:12px;padding:10px 20px;border-bottom:1px solid #EEF0EC;font-size:13px;line-height:1.5}
+.miss-g b{font-size:14px}
+.miss-g b span{font-weight:600;color:#8a5a0b;margin-left:4px}
+.miss-g i{font-style:normal;color:#9aa39d}
 .pill.lk-run{background:#e4f3ea;color:#194e3d;box-shadow:inset 0 0 0 1px #1f5f4a}
 /* Download menu */
 .dl{position:relative}

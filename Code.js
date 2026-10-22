@@ -67,7 +67,7 @@ const ACTIONS = {
   deleteVoucher: (token, p) => { auth_(token, true); return deleteVoucher_(p.code); },
   saveFeedback: (token, p) => saveFeedback_(auth_(token), p),
   adminDay: (token, p) => { auth_(token, true); return adminDay_(p.date); },
-  adminWeek: (token, p) => { auth_(token, true); return adminWeek_(p.ws); },
+  adminWeek: (token, p) => { auth_(token, true); return adminWeek_(p.ws, p.lite); },
   adminWeekDetail: (token, p) => { auth_(token, true); return adminWeekDetail_(p.ws); },
   adminMonth: (token, p) => { auth_(token, true); return adminMonth_(p.ym); },
   adminMonthDetail: (token, p) => { auth_(token, true); return adminMonthDetail_(p.ym); },
@@ -721,7 +721,25 @@ function empMap_(emps) { const m = {}; emps.forEach(e => { m[e.nik] = e; }); ret
 function adminDay_(k) {
   if (!isKey_(k)) throw new Error('Tanggal tidak valid.');
   const emps = employees_(), j = joinDay_(k, regsMonths_([k.slice(0, 7)]).filter(r => r.date === k), closures_(), empMap_(emps));
-  return { date: k, rows: j.rows, lb: j.lb, db: j.db, stores: storesOf_(emps), settings: settings_(), now: now_() };
+  return { date: k, rows: j.rows, lb: j.lb, db: j.db, stores: storesOf_(emps), settings: settings_(), now: now_(), menu: menus_(k, k)[k] || null, fb: dayFeedback_(k) };
+}
+
+/** Feedback summary for one day: per meal { n, enak, biasa, kurang, top: [tag, count] | null }. */
+function dayFeedback_(k) {
+  const out = {};
+  ['lunch', 'dinner'].forEach(m => { out[m] = { n: 0, enak: 0, biasa: 0, kurang: 0, top: null, tags: {} }; });
+  fbMonths_([k.slice(0, 7)]).forEach(f => {
+    if (f.date !== k) return;
+    const o = out[f.meal];
+    o.n++; o[f.r]++;
+    f.tags.forEach(t => { if (t !== 'Menu favorit') o.tags[t] = (o.tags[t] || 0) + 1; });
+  });
+  Object.keys(out).forEach(m => {
+    const o = out[m], top = Object.keys(o.tags).sort((a, b) => o.tags[b] - o.tags[a])[0];
+    o.top = top ? [top, o.tags[top]] : null;
+    delete o.tags;
+  });
+  return out;
 }
 
 /**
@@ -765,7 +783,27 @@ function checkWeek_(ws) { if (!isKey_(ws) || dow_(ws) !== 0) throw new Error('Mi
 
 function adminMonth_(ym) { checkMonth_(ym); return Object.assign(rangeAgg_(ym + '-01', monthEnd_(ym)), { ym }); }
 function adminMonthDetail_(ym) { checkMonth_(ym); return rangeDetail_(ym + '-01', monthEnd_(ym)); }
-function adminWeek_(ws) { checkWeek_(ws); return Object.assign(rangeAgg_(ws, addDays_(ws, 6)), { ws }); }
+/**
+ * One week (Monday `ws`). Unless `lite` (used for the previous-week comparison) it also carries:
+ * trend = the 8 weeks ending with this one, each { ws, s: store -> [siang, malam] };
+ * missing = active employees with no portions at all this week (by home store), for reminders before the cutoff.
+ */
+function adminWeek_(ws, lite) {
+  checkWeek_(ws);
+  const we = addDays_(ws, 6), out = Object.assign(rangeAgg_(ws, we), { ws });
+  if (lite) return out;
+  const from = addDays_(ws, -49), trend = [];
+  for (let i = 0; i < 8; i++) trend.push({ ws: addDays_(from, i * 7), s: {} });
+  rangeAgg_(from, we).days.forEach(x => {
+    const t = trend[Math.floor((k2t_(x.date) - k2t_(from)) / (7 * 864e5))].s;
+    Object.keys(x.s).forEach(st => { const v = x.s[st], c = t[st] || (t[st] = [0, 0]); c[0] += v[0] + v[2]; c[1] += v[1] + v[3]; });
+  });
+  const regd = {};
+  regsMonths_(monthsBetween_(ws, we)).forEach(r => { if (r.date >= ws && r.date <= we && (r.l || r.d)) regd[r.nik] = true; });
+  out.trend = trend;
+  out.missing = employees_().filter(e => e.active && !regd[e.nik]).map(e => ({ nik: e.nik, name: e.name, dept: e.dept, store: e.store, collar: e.collar }));
+  return out;
+}
 function adminWeekDetail_(ws) { checkWeek_(ws); return rangeDetail_(ws, addDays_(ws, 6)); }
 
 /** Feedback sessions for `from`–`to` (default the last 14 days, max 92) and the 8-week trend ending at `to`. */
