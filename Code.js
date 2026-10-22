@@ -18,7 +18,7 @@ const FB_TAGS = ['Porsi kurang', 'Kurang hangat', 'Terlalu asin', 'Terlalu pedas
 
 const SHEETS = {
   employee: ['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Role', 'Aktif'],
-  pendaftaran: ['Tanggal', 'NIK', 'Siang', 'Malam', 'Diperbarui'],
+  pendaftaran: ['Tanggal', 'NIK', 'Siang', 'Malam', 'Diperbarui', 'Store'],
   tutup: ['Grup', 'Tanggal', 'Waktu', 'Alasan', 'Dibuat oleh', 'Dibuat pada'],
   masukan: ['Tanggal', 'Waktu', 'NIK', 'Nilai', 'Tag', 'Catatan', 'Diperbarui'],
   menu: ['Tanggal', 'Siang', 'Malam'],
@@ -60,13 +60,15 @@ function api(action, token, payload) {
 const ACTIONS = {
   login: (_, p) => login_(p.nik, p.name),
   bootstrap: token => bootstrap_(auth_(token)),
-  saveRegistrations: (token, p) => saveRegistrations_(auth_(token), p.changes || [], p.voucher),
+  saveRegistrations: (token, p) => saveRegistrations_(auth_(token), p.changes || [], p.voucher, p.store),
   checkVoucher: (token, p) => { auth_(token); return checkVoucher_(p.code); },
   adminVouchers: token => { auth_(token, true); return adminVouchers_(); },
   uploadVouchers: (token, p) => uploadVouchers_(auth_(token, true), p.rows || []),
   deleteVoucher: (token, p) => { auth_(token, true); return deleteVoucher_(p.code); },
   saveFeedback: (token, p) => saveFeedback_(auth_(token), p),
   adminDay: (token, p) => { auth_(token, true); return adminDay_(p.date); },
+  adminWeek: (token, p) => { auth_(token, true); return adminWeek_(p.ws); },
+  adminWeekDetail: (token, p) => { auth_(token, true); return adminWeekDetail_(p.ws); },
   adminMonth: (token, p) => { auth_(token, true); return adminMonth_(p.ym); },
   adminMonthDetail: (token, p) => { auth_(token, true); return adminMonthDetail_(p.ym); },
   adminFeedback: (token, p) => { auth_(token, true); return adminFeedback_(p); },
@@ -81,12 +83,12 @@ const ACTIONS = {
 
 function ensureSetup_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('setup_v2')) return;           // bump when SHEETS gains a tab (v2: voucher)
+  if (props.getProperty('setup_v3')) return;           // bump when SHEETS gains a tab or column (v2: voucher, v3: pendaftaran.Store)
   setupSheets();
-  props.setProperty('setup_v2', '1');
+  props.setProperty('setup_v3', '1');
 }
 
-/** Creates missing tabs and headers. Safe to run again from the editor. */
+/** Creates missing tabs and headers (including columns added later, e.g. pendaftaran.Store). Safe to run again from the editor. */
 function setupSheets() {
   const ss = ss_();
   Object.keys(SHEETS).forEach(name => {
@@ -97,6 +99,8 @@ function setupSheets() {
     if (first.every(v => !String(v).trim())) {
       sh.getRange(1, 1, 1, hdr.length).setValues([hdr]).setFontWeight('bold');
       sh.setFrozenRows(1);
+    } else {
+      first.forEach((v, i) => { if (!String(v).trim()) sh.getRange(1, i + 1).setValue(hdr[i]).setFontWeight('bold'); });
     }
     (TEXT_COLS[name] || []).forEach(c => sh.getRange(c + ':' + c).setNumberFormat('@'));
   });
@@ -205,6 +209,10 @@ function storesOf_(emps) {
   emps.forEach(e => { if (seen.indexOf(e.store) < 0) seen.push(e.store); });
   return seen;
 }
+/** Store locations an employee can pick when submitting (every store in `employee`, A–Z). */
+function storeChoices_() {
+  return storesOf_(employees_().filter(e => e.active)).filter(st => st !== 'Tanpa store').sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base', numeric: true }));
+}
 
 function mealOf_(v) {
   const s = String(v).toLowerCase();
@@ -232,7 +240,7 @@ function regsAll_() {
   const at = {}, out = [];
   readTable_('pendaftaran').rows.forEach(r => {
     if (!isKey_(r.tanggal)) return;
-    const v = { date: r.tanggal, nik: String(r.nik).replace(/\s/g, ''), l: Math.max(0, parseInt(r.siang, 10) || 0), d: Math.max(0, parseInt(r.malam, 10) || 0) };
+    const v = { date: r.tanggal, nik: String(r.nik).replace(/\s/g, ''), l: Math.max(0, parseInt(r.siang, 10) || 0), d: Math.max(0, parseInt(r.malam, 10) || 0), st: r.store || '' };
     const key = v.date + '|' + v.nik;
     if (key in at) out[at[key]] = v; else { at[key] = out.length; out.push(v); }
   });
@@ -337,9 +345,10 @@ function monthlyRows_(prefix, genKey, yms, loadAll, enc, dec) {
   return out;
 }
 
-const REG_PREFIX = 'reg3:', FB_PREFIX = 'fb3:';
-const encReg_ = r => r.date + '|' + r.nik + '|' + r.l + '|' + r.d;
-const decReg_ = l => { const f = l.split('|'); return { date: f[0], nik: f.slice(1, -2).join('|'), l: Number(f[f.length - 2]), d: Number(f[f.length - 1]) }; };
+// `st` = store location picked when submitting ('' on rows saved before the Store column: the employee's store applies).
+const REG_PREFIX = 'reg4:', FB_PREFIX = 'fb3:';
+const encReg_ = r => JSON.stringify([r.date, r.nik, r.l, r.d, r.st || '']);
+const decReg_ = l => { const a = JSON.parse(l); return { date: a[0], nik: a[1], l: a[2], d: a[3], st: a[4] }; };
 
 /** Registrations (qty > 0) for the given months. */
 function regsMonths_(yms) {
@@ -357,7 +366,7 @@ function patchRegs_(nik, changed) {
     if (texts[y] == null) return;                 // not cached: the next read builds it from the sheet
     const ds = byMonth[y];
     const rows = texts[y].slice(1).split('\n').filter(Boolean).map(decReg_).filter(r => !(r.nik === nik && ds.indexOf(r.date) >= 0));
-    ds.forEach(k => { const v = changed[k]; if (v.l || v.d) rows.push({ date: k, nik, l: v.l, d: v.d }); });
+    ds.forEach(k => { const v = changed[k]; if (v.l || v.d) rows.push({ date: k, nik, l: v.l, d: v.d, st: v.st }); });
     bigPut_(REG_PREFIX + y, '#' + rows.map(encReg_).join('\n'));
   });
   delete MEMO['t:pendaftaran'];
@@ -449,7 +458,7 @@ function bootstrap_(me) {
   });
   return {
     user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, collar: me.collar, admin: me.admin },
-    settings: s, now, price: PRICE, months: rg.months, fbTags: FB_TAGS, fbEditDays: FB_EDIT_DAYS,
+    settings: s, now, price: PRICE, months: rg.months, fbTags: FB_TAGS, fbEditDays: FB_EDIT_DAYS, stores: storeChoices_(),
     reg: myRegs_(me.nik, rg.from, rg.to),
     closures: closures_().filter(c => c.date >= rg.from),
     menus: menus_(addDays_(now.key, -14), rg.to),
@@ -458,9 +467,11 @@ function bootstrap_(me) {
   };
 }
 
-function saveRegistrations_(me, changes, code) {
+function saveRegistrations_(me, changes, code, store) {
   if (!Array.isArray(changes) || changes.length > 400) throw new Error('Data pendaftaran tidak valid.');
   const s = settings_(), now = now_(), closures = closures_();
+  const st = String(store || '').trim() || me.store;
+  if (storeChoices_().indexOf(st) < 0 && st !== me.store) throw new Error('Pilih lokasi store yang tersedia.');
   let skipped = 0;
   const clean = {};
   changes.forEach(c => {
@@ -469,7 +480,8 @@ function saveRegistrations_(me, changes, code) {
     const q = v => Math.max(0, Math.min(s.maxPortions, parseInt(v, 10) || 0));
     clean[c.date] = {
       l: blockOf_(closures, c.date, 'lunch') ? 0 : q(c.l),
-      d: blockOf_(closures, c.date, 'dinner') ? 0 : q(c.d)
+      d: blockOf_(closures, c.date, 'dinner') ? 0 : q(c.d),
+      st
     };
   });
   const dates = Object.keys(clean).sort(), rg = myRange_(now), reg = {};
@@ -485,11 +497,11 @@ function saveRegistrations_(me, changes, code) {
     const ts = stamp_(), rows = [], changed = {};
     dates.forEach(k => {
       const v = clean[k], ex = existing[k] || { l: 0, d: 0 };
-      if (ex.l !== v.l || ex.d !== v.d) { rows.push([k, me.nik, v.l, v.d, ts]); changed[k] = v; }
+      if (ex.l !== v.l || ex.d !== v.d || ((v.l || v.d) && ex.st !== v.st)) { rows.push([k, me.nik, v.l, v.d, ts, v.st]); changed[k] = v; }
     });
     if (rows.length) {
       const sh = sheet_('pendaftaran');
-      sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
       patchRegs_(me.nik, changed);
     }
     if (redeem) {
@@ -516,13 +528,13 @@ function compactRegistrations() {
     readTable_('pendaftaran').rows.forEach(r => {
       if (!isKey_(r.tanggal)) return;
       const nik = String(r.nik).replace(/\s/g, '');
-      last[r.tanggal + '|' + nik] = [r.tanggal, nik, parseInt(r.siang, 10) || 0, parseInt(r.malam, 10) || 0, r.diperbarui || ''];
+      last[r.tanggal + '|' + nik] = [r.tanggal, nik, parseInt(r.siang, 10) || 0, parseInt(r.malam, 10) || 0, r.diperbarui || '', r.store || ''];
     });
     const keep = Object.keys(last).map(k => last[k]).filter(r => r[2] || r[3])
       .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
     const before = sh.getLastRow() - 1;
-    if (before > 0) sh.getRange(2, 1, before, 5).clearContent();
-    if (keep.length) sh.getRange(2, 1, keep.length, 5).setValues(keep);
+    if (before > 0) sh.getRange(2, 1, before, 6).clearContent();
+    if (keep.length) sh.getRange(2, 1, keep.length, 6).setValues(keep);
     bumpGen_('regGen');
     delete MEMO['t:pendaftaran'];
     return { before: Math.max(0, before), after: keep.length };
@@ -699,7 +711,7 @@ function joinDay_(k, regs, closures, empMap) {
     const l = lb ? 0 : r.l, d = db ? 0 : r.d;
     if (!l && !d) return;
     const e = empMap[r.nik] || { nik: r.nik, name: '(NIK tidak dikenal)', dept: '', store: 'Tanpa store', collar: 'white' };
-    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: e.store, collar: e.collar, l, d });
+    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: r.st || e.store, collar: e.collar, l, d });
   });
   return { rows, lb, db };
 }
@@ -712,13 +724,13 @@ function adminDay_(k) {
   return { date: k, rows: j.rows, lb: j.lb, db: j.db, stores: storesOf_(emps), settings: settings_(), now: now_() };
 }
 
-function adminMonth_(ym) {
-  if (!/^\d{4}-\d{2}$/.test(ym || '')) throw new Error('Bulan tidak valid.');
-  const emps = employees_(), em = empMap_(emps), byDate = groupByDate_(regsMonths_([ym])), closures = closures_();
+/** Per-day totals and the per-store split for `from`–`to` (used by the weekly and monthly recaps). */
+function rangeAgg_(from, to) {
+  const emps = employees_(), em = empMap_(emps), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_();
   const stores = storesOf_(emps), split = {};
   stores.forEach(st => { split[st] = [0, 0, 0, 0]; });
   const days = [];
-  for (let k = ym + '-01', end = monthEnd_(ym); k <= end; k = addDays_(k, 1)) {
+  for (let k = from; k <= to; k = addDays_(k, 1)) {
     const j = joinDay_(k, byDate[k] || [], closures, em);
     let l = 0, d = 0, pl = 0, pd = 0;
     j.rows.forEach(r => {
@@ -729,17 +741,25 @@ function adminMonth_(ym) {
     });
     days.push({ date: k, l, d, pl, pd, n: j.rows.length, lb: j.lb, db: j.db });
   }
-  return { ym, days, stores, split, now: now_() };
+  return { days, stores, split, now: now_() };
 }
 
-function adminMonthDetail_(ym) {
-  if (!/^\d{4}-\d{2}$/.test(ym || '')) throw new Error('Bulan tidak valid.');
-  const em = empMap_(employees_()), byDate = groupByDate_(regsMonths_([ym])), closures = closures_(), out = [];
-  for (let k = ym + '-01', end = monthEnd_(ym); k <= end; k = addDays_(k, 1)) {
+function rangeDetail_(from, to) {
+  const em = empMap_(employees_()), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_(), out = [];
+  for (let k = from; k <= to; k = addDays_(k, 1)) {
     joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d]));
   }
   return out;
 }
+
+function checkMonth_(ym) { if (!/^\d{4}-\d{2}$/.test(ym || '')) throw new Error('Bulan tidak valid.'); }
+/** Weeks start on Monday (`ws`). */
+function checkWeek_(ws) { if (!isKey_(ws) || dow_(ws) !== 0) throw new Error('Minggu tidak valid.'); }
+
+function adminMonth_(ym) { checkMonth_(ym); return Object.assign(rangeAgg_(ym + '-01', monthEnd_(ym)), { ym }); }
+function adminMonthDetail_(ym) { checkMonth_(ym); return rangeDetail_(ym + '-01', monthEnd_(ym)); }
+function adminWeek_(ws) { checkWeek_(ws); return Object.assign(rangeAgg_(ws, addDays_(ws, 6)), { ws }); }
+function adminWeekDetail_(ws) { checkWeek_(ws); return rangeDetail_(ws, addDays_(ws, 6)); }
 
 /** Feedback sessions for `from`–`to` (default the last 14 days, max 92) and the 8-week trend ending at `to`. */
 function adminFeedback_(p) {

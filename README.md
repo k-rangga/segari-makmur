@@ -19,12 +19,14 @@ Spreadsheet ID is `SPREADSHEET_ID` in `Code.js`. Missing tabs and headers are cr
 | Tab | Columns | Notes |
 |---|---|---|
 | `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif | **Fill this in.** Kategori `White collar`/`Blue collar` (blank → Gudang/Operasional count as blue). Role `admin` unlocks Rekap porsi + Tutup kantin. Aktif `Tidak` blocks login. |
-| `pendaftaran` | Tanggal, NIK, Siang, Malam, Diperbarui | Portions per meal, **append-only**: every save adds rows and the newest row for a Tanggal + NIK wins (older rows are history). To change a registration by hand, add a new row rather than editing an old one. Run `compactRegistrations` from the editor (or on a weekly time-driven trigger) to drop superseded rows. |
+| `pendaftaran` | Tanggal, NIK, Siang, Malam, Diperbarui, Store | Portions per meal, **append-only**: every save adds rows and the newest row for a Tanggal + NIK wins (older rows are history). To change a registration by hand, add a new row rather than editing an old one. Run `compactRegistrations` from the editor (or on a weekly time-driven trigger) to drop superseded rows. Store = the location the employee picked in the submit bar (dropdown of every store in `employee`); the recap counts each portion at that store. Blank (rows from before the column existed) falls back to the employee's own store. |
 | `tutup` | Grup, Tanggal, Waktu, Alasan, Dibuat oleh, Dibuat pada | Canteen closures. Registrations on closed meals are ignored (kept, so reopening restores them). |
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | Feedback. Kitchen CSV export is anonymous; admins see names. |
 | `menu` | Tanggal, Siang, Malam | Optional menu names shown in feedback prompts. |
 | `voucher` | Kode, Nilai, Berlaku sampai, Dipakai oleh, Dipakai pada, Potongan, Rincian, Diunggah pada, Diunggah oleh | Single-use discount codes (fixed Rupiah). Admins bulk-upload them on the **Voucher** page (CSV `kode,nilai,berlaku_sampai`). An employee enters a code when submitting; it takes that submission's new portions off the deduction, capped at their cost, and records the split per month in Rincian. |
 | `pengaturan` | Kunci, Nilai, Keterangan | `batas_hari` / `batas_jam` (white collar: 3 = Friday before the week, 23:59), `batas_hari_blue` / `batas_jam_blue` (blue collar; fall back to the white-collar values), `maks_porsi` (3). Days count back from the meal week's Monday: 5 (Wednesday before) … 1 (Sunday), 0 (Monday) … -2 (Wednesday of the meal week). Today and past days are always locked. |
+
+Rekap porsi (admin): Harian, **Mingguan** (Senin–Minggu, with prev/next and a date picker that snaps to Monday; same stats, store split, day table and CSV exports as Bulanan), Bulanan, Masukan.
 
 Caching: employees, settings, closures, menus, vouchers and per-month registrations and feedback are cached server-side for 5 minutes. Changes made through the app update the cache immediately; manual edits in the sheet appear within 5 minutes.
 

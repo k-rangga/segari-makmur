@@ -74,7 +74,8 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  hr: { mode: 'day', date: '', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
+  stores: [], store: '',
+  hr: { mode: 'day', date: '', ws: '', weekCache: {}, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
@@ -229,7 +230,8 @@ function signOut(msg) {
   S.user = null; S.saved = {}; S.sel = {}; S.view = 'meal'; S.pop = null; S.fbDraft = null;
   ls.set('pm-boot', null); S.bootData = null;
   S.voucher = null; S.vcode = ''; S.myVouchers = []; S.vc.data = null;
-  S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
+  S.store = ''; S.stores = [];
+  S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.hr.weekCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
   render();
 }
 
@@ -238,12 +240,15 @@ function signOut(msg) {
 function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
+  S.stores = d.stores || [];
+  // Store picked on submit: the last one used in this browser, else the employee's own store.
+  if (S.stores.indexOf(S.store) < 0) S.store = [ls.get('pm-store'), d.user.store].find(st => st && S.stores.indexOf(st) >= 0) || '';
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
     S.view = d.user.admin && ['recap', 'closure', 'voucher'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
     S.saved = clone(d.reg); S.sel = clone(d.reg); S.mi = 0;
     const now = nowJ();
-    S.hr.date = now.key; S.hr.yms = [now.key.slice(0, 7)];
+    S.hr.date = now.key; S.hr.ws = addDays(now.key, -dow(now.key)); S.hr.yms = [now.key.slice(0, 7)];
     S.hr.fbRange = { from: addDays(now.key, -13), to: now.key };
     S.cl.from = S.cl.to = now.key;
   } else if (!S.syncing) {
@@ -478,6 +483,12 @@ function voucherBox(pend) {
     '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
 }
 
+function storeBox() {
+  return '<select class="vstore' + (S.store ? '' : ' empty') + '" data-ch="store" aria-label="Lokasi store" title="Lokasi store tempat kamu makan">' +
+    (S.store ? '' : '<option value="" selected disabled>Pilih lokasi store</option>') +
+    S.stores.map(st => '<option' + (st === S.store ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>';
+}
+
 function pendingBarView(pend, now) {
   if (!pend.length) return '';
   const n = pend.reduce((a, c) => a + c.n, 0), delta = pend.reduce((a, c) => a + c.delta, 0), allAdd = pend.every(c => c.add);
@@ -486,7 +497,7 @@ function pendingBarView(pend, now) {
   const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0;
   const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
   return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
-    '<div class="pend-act">' + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
+    '<div class="pend-act">' + storeBox() + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
 }
 
 function summaryView(ym, now, pend) {
@@ -568,8 +579,8 @@ function openFb(k, meal, r) {
 function recapView() {
   const H = S.hr;
   let h = '<main><div class="ph"><h1>Rekap porsi</h1><span>Jumlah porsi dan karyawan yang mendaftar makan</span></div>' +
-    '<nav class="tabs">' + [['day', 'Harian'], ['month', 'Bulanan'], ['fb', 'Masukan']].map(t => '<button class="tab' + (H.mode === t[0] ? ' on' : '') + '" data-a="hrMode" data-v="' + t[0] + '">' + t[1] + '</button>').join('') + '</nav>';
-  h += H.mode === 'day' ? dayView() : H.mode === 'month' ? monthView() : feedbackView();
+    '<nav class="tabs">' + [['day', 'Harian'], ['week', 'Mingguan'], ['month', 'Bulanan'], ['fb', 'Masukan']].map(t => '<button class="tab' + (H.mode === t[0] ? ' on' : '') + '" data-a="hrMode" data-v="' + t[0] + '">' + t[1] + '</button>').join('') + '</nav>';
+  h += H.mode === 'day' ? dayView() : H.mode === 'week' ? weekView() : H.mode === 'month' ? monthView() : feedbackView();
   return h + '</main>';
 }
 
@@ -711,13 +722,9 @@ function monthAgg(yms) {
   return { days, stores, split };
 }
 
-function monthView() {
-  const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1;
-  let h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + '<div class="spacer"></div>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
-  if (yms.some(y => !H.monthCache[y])) return h + skelView(10);
-  const m = monthAgg(yms);
-  let tL = 0, tD = 0;
+// Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date.
+function rangeView(m, now, long) {
+  let tL = 0, tD = 0, h = '';
   m.days.forEach(x => { tL += x.l; tD += x.d; });
   const wd = m.days.filter(x => dow(x.date) < 5);
   const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
@@ -733,13 +740,38 @@ function monthView() {
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
       const numFg = full ? '#9aa39d' : '#1d211f';
       return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#fafbf9' : '') + '">' +
-        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (multi ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
+        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (long ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
         '<span class="r" style="color:' + (x.lb ? '#9aa39d' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#9aa39d' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
         '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:' + MC.lunch.a + '"></div><div style="width:' + (x.d / max * 100) + '%;background:' + MC.dinner.a + '"></div></div>' +
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
     }).join('') +
     '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
   return h;
+}
+
+function monthView() {
+  const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1;
+  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + '<div class="spacer"></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
+  if (yms.some(y => !H.monthCache[y])) return h + skelView(10);
+  return h + rangeView(monthAgg(yms), now, multi);
+}
+
+// Weeks run Monday–Sunday; S.hr.ws is the Monday. Same date limits as the daily view.
+const weekMin = now => addDays(now.key, -400), weekMax = now => addDays(now.key, 120);
+function weekView() {
+  const H = S.hr, now = nowJ(), ws = H.ws, w = H.weekCache[ws], thisWs = addDays(now.key, -dow(now.key));
+  const prevOk = addDays(ws, -1) >= weekMin(now), nextOk = addDays(ws, 7) <= weekMax(now);
+  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
+    '<div class="wk-nav"><button class="btn lg" data-a="wkNav" data-n="-7" title="Minggu sebelumnya" aria-label="Minggu sebelumnya"' + (prevOk ? '' : ' disabled') + '>' + ICON.left(18) + '</button>' +
+    '<span class="h20">' + periodTitle(ws, addDays(ws, 6)) + '</span>' +
+    '<button class="btn lg" data-a="wkNav" data-n="7" title="Minggu berikutnya" aria-label="Minggu berikutnya"' + (nextOk ? '' : ' disabled') + '>' + ICON.right(18) + '</button></div>' +
+    (ws === thisWs ? '<span class="pill buka">Minggu ini</span>' : '<button class="link" data-a="wkToday">Ke minggu ini</button>') +
+    '<div class="spacer"></div>' +
+    '<input type="date" class="input lg" style="width:200px" data-ch="hrWeek" value="' + ws + '" min="' + weekMin(now) + '" max="' + weekMax(now) + '" title="Pilih tanggal mana saja; minggu dimulai Senin" aria-label="Pilih minggu">' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
+  if (!w) return h + skelView(7);
+  return h + rangeView(w, now, true);
 }
 
 // ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
@@ -1060,6 +1092,7 @@ function staleAdmin() {
   const H = S.hr;
   Object.keys(H.days).forEach(k => { H.days[k]._at = 0; });
   Object.keys(H.monthCache).forEach(k => { H.monthCache[k]._at = 0; });
+  Object.keys(H.weekCache).forEach(k => { H.weekCache[k]._at = 0; });
   if (H.fb) H.fb._at = 0;
 }
 function curDay() { return S.hr.days[S.hr.date] || null; }
@@ -1071,6 +1104,7 @@ function ensureData() {
       loadDay(H.date);
       if (curDay()) [addDays(H.date, -1), addDays(H.date, 1)].forEach(k => { if (!H.days[k]) loadDay(k); });   // prefetch neighbours
     }
+    if (H.mode === 'week' && !fresh(H.weekCache[H.ws], 120000)) load('week:' + H.ws, 'adminWeek', { ws: H.ws }, d => { H.weekCache[d.ws] = d; });
     if (H.mode === 'month') selMonths().forEach(y => { if (!fresh(H.monthCache[y], 120000)) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
     if (H.mode === 'fb') {
       const R = H.fbRange, same = H.fb && H.fb.from === R.from && H.fb.to === R.to;
@@ -1156,6 +1190,9 @@ const A = {
     if (!pend.length) return;
     const vch = S.voucher, added = addedByMonth(pend);
     if (vch && !sumObj(added)) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
+    const store = S.store;
+    if (!store && pend.some(c => c.l || c.d)) return flash('Pilih lokasi store dulu.');
+    if (store) ls.set('pm-store', store);
     const n = pend.reduce((a, c) => a + c.n, 0), before = {}, changes = pend.map(c => ({ date: c.date, l: c.l, d: c.d }));
     const tentative = vch ? { code: vch.code, split: splitVoucher(vch.value, added), pending: true } : null;
     if (tentative) { tentative.discount = sumObj(tentative.split); S.myVouchers.push(tentative); S.voucher = null; }
@@ -1164,8 +1201,8 @@ const A = {
       if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d }; else delete S.saved[c.date];
     });
     S.syncing++; S.pop = null;
-    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
-    S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null }).then(r => {
+    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (store ? ' · ' + store : '') + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
+    S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null, store }).then(r => {
       S.syncing--;
       if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1, r.voucher || tentative); }
       changes.forEach(c => {                       // align server-adjusted days (closed meal, locked) if untouched since
@@ -1213,6 +1250,8 @@ const A = {
   // admin recap
   hrMode(el) { S.hr.mode = el.dataset.v; render(); },
   sort(el) { const k = el.dataset.k, so = S.hr.sort, num = k === 'l' || k === 'd'; S.hr.sort = { k, dir: so.k === k ? -so.dir : num ? -1 : 1 }; render(); },
+  wkNav(el) { S.hr.ws = addDays(S.hr.ws, Number(el.dataset.n)); render(); },
+  wkToday() { const now = nowJ(); S.hr.ws = addDays(now.key, -dow(now.key)); render(); },
   openDay(el) { S.hr.mode = 'day'; S.hr.date = el.dataset.k; S.hr.meal = 'all'; render(); },
   cutEdit() { const c = S.settings.cut; S.hr.cutEdit = true; S.hr.cut = { white: Object.assign({}, c.white), blue: Object.assign({}, c.blue) }; render(); },
   cutCancel() { S.hr.cutEdit = false; render(); },
@@ -1231,14 +1270,21 @@ const A = {
   doPrint() { window.print(); },
   exportKitchen() {
     const H = S.hr;
-    if (H.mode === 'month') {
-      const yms = selMonths();
-      if (yms.some(y => !H.monthCache[y])) return flash('Data bulan masih dimuat');
-      const m = monthAgg(yms);
+    const rangeLines = m => {
       const lines = ['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan'];
       m.days.forEach(x => { const b = x.lb || x.db; lines.push([x.date, x.l, x.d, x.l + x.d, b ? csvq('Tutup ' + (x.lb && x.db ? 'siang+malam' : x.lb ? 'siang' : 'malam') + ': ' + b.reason) : ''].join(',')); });
       lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
-      return download('dapur-porsi-' + monthsSlug(yms) + '.csv', lines, 'Ekspor untuk dapur');
+      return lines;
+    };
+    if (H.mode === 'week') {
+      const w = H.weekCache[H.ws];
+      if (!w) return flash('Data minggu masih dimuat');
+      return download('dapur-porsi-minggu-' + H.ws + '.csv', rangeLines(w), 'Ekspor untuk dapur');
+    }
+    if (H.mode === 'month') {
+      const yms = selMonths();
+      if (yms.some(y => !H.monthCache[y])) return flash('Data bulan masih dimuat');
+      return download('dapur-porsi-' + monthsSlug(yms) + '.csv', rangeLines(monthAgg(yms)), 'Ekspor untuk dapur');
     }
     const d = curDay(); if (!d) return;
     const s = daySums(d);
@@ -1247,11 +1293,16 @@ const A = {
   },
   exportDetail() {
     const H = S.hr;
+    const detailLines = rows => [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(',')));
+    if (H.mode === 'week') {
+      const ws = H.ws;
+      call('adminWeekDetail', { ws }).then(rows => download('detail-karyawan-minggu-' + ws + '.csv', detailLines(rows), 'Detail karyawan diekspor')).catch(fail);
+      return;
+    }
     if (H.mode === 'month') {
       const yms = selMonths();
       Promise.all(yms.map(y => call('adminMonthDetail', { ym: y }))).then(parts => {
-        const rows = [].concat.apply([], parts);
-        download('detail-karyawan-' + monthsSlug(yms) + '.csv', [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(','))), 'Detail karyawan diekspor');
+        download('detail-karyawan-' + monthsSlug(yms) + '.csv', detailLines([].concat.apply([], parts)), 'Detail karyawan diekspor');
       }).catch(fail);
       return;
     }
@@ -1375,6 +1426,8 @@ const CH = {
     ds.forEach(k => fillDay(k, parts[1], now));
     flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
   },
+  store(v) { S.store = v; render(); },
+  hrWeek(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.ws = addDays(v, -dow(v)); render(); } },
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
   hrStore(v) { S.hr.store = v; render(); },

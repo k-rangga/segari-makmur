@@ -270,6 +270,14 @@ main.emp{gap:28px}
 .vinput{height:44px;width:150px;padding:0 12px;border-radius:8px;border:1px solid #5d6560;background:transparent;color:#FFFFFF;font-size:14px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;outline:none}
 .vinput::placeholder{color:#9aa39d;font-weight:400;letter-spacing:0;text-transform:none}
 .vinput:focus{border:1.5px solid #e4f3ea}
+/* Store picker in the dark pending bar: same frame as the voucher input, own chevron. */
+.vstore{height:44px;max-width:220px;padding:0 36px 0 12px;border-radius:8px;border:1px solid #5d6560;color:#FFFFFF;font-size:14px;font-weight:600;outline:none;cursor:pointer;-webkit-appearance:none;appearance:none;text-overflow:ellipsis;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c5cbc6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center/16px 16px}
+.vstore.empty{color:#9aa39d;font-weight:400;border-color:#f7971f}
+.vstore:focus{border:1.5px solid #e4f3ea}
+.vstore option{color:#1d211f;background:#FFFFFF}
+.wk-nav{display:flex;align-items:center;gap:10px}
+.wk-nav .btn{width:44px;padding:0;display:flex;align-items:center;justify-content:center}
+.wk-nav .btn:disabled{opacity:.4;cursor:default}
 .vchip{display:flex;align-items:center;gap:8px;height:44px;padding:0 4px 0 14px;border-radius:999px;background:#e4f3ea;color:#194e3d;font-size:14px;font-weight:600;white-space:nowrap}
 .vchip button{width:36px;height:36px;border-radius:50%;border:0;background:transparent;color:#194e3d;font-size:20px;line-height:1;padding:0}
 .vchip button:hover{background:#d5e6dc}
