@@ -854,8 +854,9 @@ function rangeStoreSelect(all) {
 }
 
 // Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date;
-// `prev` (same shape, or null) and `prevLabel` add a comparison with the previous period; `statsFirst` puts the totals on top (weekly).
-function rangeView(m, now, long, prev, prevLabel, statsFirst, mid) {
+// `prev` (same shape, or null) and `prevLabel` add a comparison with the previous period; `statsFirst` puts the totals on top (weekly),
+// `afterStats` (HTML) goes right under them and `mid(R)` between the day table and the store split.
+function rangeView(m, now, long, prev, prevLabel, statsFirst, mid, afterStats) {
   const R = rangeData(m, S.hr.rStore), P = prev ? sumDays(rangeData(prev, S.hr.rStore).days) : null;
   const [tL, tD] = sumDays(R.days);
   let h = '';
@@ -881,7 +882,7 @@ function rangeView(m, now, long, prev, prevLabel, statsFirst, mid) {
   const stats = '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
     statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner', P && deltaView(tD, P[1], prevLabel)) +
     statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
-  h += (statsFirst ? stats + dayTbl : dayTbl + stats) + (mid ? mid(R) : '');
+  h += (statsFirst ? stats + (afterStats || '') + dayTbl : dayTbl + stats + (afterStats || '')) + (mid ? mid(R) : '');
   h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
   return h;
 }
@@ -938,10 +939,10 @@ function weekMatrixView(w, R, now) {
   const days = w.days, cols = 'minmax(150px,1.4fr) repeat(7,minmax(74px,1fr)) minmax(70px,.8fr)';
   const stores = R.stores.slice().sort(byStoreName).filter(st => days.some(x => (x.s || {})[st]));
   const v = (st, x) => { const a = (x.s || {})[st] || [0, 0, 0, 0]; return [a[0] + a[2], a[1] + a[3]]; };
-  const cell = (l, d) => l || d ? '<span class="mx"><b>' + l + '</b><i>/</i><b class="dn">' + d + '</b></span>' : '<span class="mx z">–</span>';
+  const cell = (l, d) => l || d ? '<span class="mx"><b>' + l + '</b><i>|</i><b class="dn">' + d + '</b></span>' : '<span class="mx z">–</span>';
   const head = days.map(x => '<span class="mx-h' + (x.date === now.key ? ' today' : '') + '">' + DAYS[dow(x.date)] + ' ' + dnum(x.date) + '</span>').join('');
   const tot = days.map(x => stores.reduce((a, st) => { const c = v(st, x); return [a[0] + c[0], a[1] + c[1]]; }, [0, 0]));
-  return '<div class="tbl x"><div style="min-width:860px"><div class="tbar"><div class="t"><b>Per store per hari</b><span>Siang / <span style="color:' + MC.dinner.x + '">malam</span> · untuk persiapan dapur tiap lokasi</span></div></div>' +
+  return '<div class="tbl x"><div style="min-width:860px"><div class="tbar"><div class="t"><b>Per store per hari</b><span>Siang | <span style="color:' + MC.dinner.x + '">malam</span> · untuk persiapan dapur tiap lokasi</span></div></div>' +
     '<div class="tr th" style="grid-template-columns:' + cols + '"><span>Store</span>' + head + '<span class="r">Total</span></div>' +
     stores.map(st => { const n = days.reduce((a, x) => { const c = v(st, x); return a + c[0] + c[1]; }, 0);
       return '<div class="tr" style="grid-template-columns:' + cols + '"><span class="ell" style="font-weight:600">' + esc(st) + '</span>' + days.map(x => { const c = v(st, x); return cell(c[0], c[1]); }).join('') + '<span class="r" style="font-weight:700">' + nf(n) + '</span></div>'; }).join('') +
@@ -985,7 +986,7 @@ function weekView() {
   // Cutoff card for the week: the first day that can still change (tomorrow, or Monday for a future week).
   const we = addDays(ws, 6), tm = addDays(now.key, 1), ck = ws > now.key ? ws : tm <= we ? tm : we;
   const prevW = H.weekCache['lite:' + addDays(ws, -7)] || H.weekCache[addDays(ws, -7)] || null;
-  return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, prevW, 'minggu lalu', true, R => weekMatrixView(w, R, now)) + weekTrendView(w, now) + missingView(w, now);
+  return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, prevW, 'minggu lalu', true, R => weekMatrixView(w, R, now), weekTrendView(w, now)) + missingView(w, now);
 }
 
 // ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
@@ -1473,11 +1474,11 @@ function pdfDaysSection(days, now) {
 }
 // Week only: each store's siang / malam per day, the kitchen's shopping list.
 function pdfMatrixSection(m, stores) {
-  const days = m.days, cell = (st, x) => { const v = (x.s || {})[st] || [0, 0, 0, 0]; const l = v[0] + v[2], d = v[1] + v[3]; return l || d ? l + ' / ' + d : '–'; };
+  const days = m.days, cell = (st, x) => { const v = (x.s || {})[st] || [0, 0, 0, 0]; const l = v[0] + v[2], d = v[1] + v[3]; return l || d ? l + ' | ' + d : '–'; };
   const rows = stores.slice().sort(byStoreName).filter(st => days.some(x => (x.s || {})[st]));
   const tot = st => days.reduce((a, x) => { const v = (x.s || {})[st] || [0, 0, 0, 0]; return a + v[0] + v[1] + v[2] + v[3]; }, 0);
   return {
-    title: 'Per store per hari', sub: 'Siang / malam', small: true,
+    title: 'Per store per hari', sub: 'Siang | malam', small: true,
     head: [['Store'].concat(days.map(x => DAYS[dow(x.date)] + ' ' + dnum(x.date)), ['Total'])],
     body: rows.length ? rows.map(st => [st].concat(days.map(x => cell(st, x)), [nf(tot(st))])) : [[{ content: 'Belum ada pendaftaran.', colSpan: days.length + 2 }]],
     cols: Object.assign({ 0: { fontStyle: 'bold' } }, ...days.map((_, i) => ({ [i + 1]: { halign: 'center' } })), { [days.length + 1]: Object.assign({ fontStyle: 'bold' }, PDF_RIGHT) })
