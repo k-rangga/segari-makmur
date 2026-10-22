@@ -19,7 +19,7 @@ const swatch = meal => '<i style="display:inline-block;width:8px;height:8px;bord
 const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
 const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
 const DETAIL_COLS = '96px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
-const MONTH_COLS = '110px minmax(0,1fr) 80px 80px minmax(170px,1.3fr)';
+const MONTH_COLS = '110px minmax(190px,1.2fr) 80px 80px minmax(170px,1.3fr)';
 const FB_COLS = '110px 70px 80px minmax(0,1.2fr) minmax(0,1fr)';
 
 const k2t = k => { const p = k.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]); };
@@ -75,7 +75,7 @@ const S = {
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
   stores: [], store: '', storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
-  hr: { mode: 'day', date: '', ws: '', weekCache: {}, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
+  hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
@@ -607,24 +607,35 @@ function storeAgg(stores, split) {
   const rows = stores.slice().sort(byStoreName).map(st => { const v = split[st] || [0, 0, 0, 0]; v.forEach((n, i) => { t[i] += n; }); return { store: st, v, total: v[0] + v[1] + v[2] + v[3] }; });
   return { rows, t, total: t[0] + t[1] + t[2] + t[3] };
 }
+// `cross` (store -> [siang, malam]) counts portions eaten at a store by employees whose own store is another one.
 function splitOfRows(rows, stores) {
-  const sp = {}, list = stores.slice();
+  const sp = {}, cross = {}, list = stores.slice();
   list.forEach(s => { sp[s] = [0, 0, 0, 0]; });
   rows.forEach(r => {
     if (!sp[r.store]) { sp[r.store] = [0, 0, 0, 0]; list.push(r.store); }
     const o = r.collar === 'white' ? 0 : 2;
     sp[r.store][o] += r.l; sp[r.store][o + 1] += r.d;
+    if (r.home && r.home !== r.store) { const c = cross[r.store] || (cross[r.store] = [0, 0]); c[0] += r.l; c[1] += r.d; }
   });
-  return storeAgg(list, sp);
+  return Object.assign(storeAgg(list, sp), { cross });
 }
+const STORE_COLS_X = STORE_COLS + ' minmax(96px,1fr)';
 function storeTableView(title, agg, actions, headPad) {
-  const cell = v => '<span class="r">' + nf(v) + '</span>';
-  return '<div class="tbl x"><div style="min-width:680px"><div class="tbar"><div class="t"><b>' + title + '</b><span>White collar ' + nf(agg.t[0] + agg.t[1]) + ' porsi · Blue collar ' + nf(agg.t[2] + agg.t[3]) + ' porsi</span></div>' + (actions || '') + '</div>' +
-    '<div class="grp" style="grid-template-columns:' + STORE_COLS + '"><span></span><span class="w">White collar</span><span class="b">Blue collar</span><span></span></div>' +
-    '<div class="tr th" style="grid-template-columns:' + STORE_COLS + ';padding:' + (headPad || '10px 20px 14px') + '"><span>Store</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span></div>' +
-    agg.rows.map(r => '<div class="tr" style="grid-template-columns:' + STORE_COLS + '"><span class="ell" style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + '<span class="r" style="font-weight:700">' + nf(r.total) + '</span></div>').join('') +
+  const cell = v => '<span class="r">' + nf(v) + '</span>', X = agg.cross, cols = X ? STORE_COLS_X : STORE_COLS;
+  const xOf = st => { const c = (X && X[st]) || [0, 0]; return c[0] + c[1]; };
+  const xCell = st => {
+    const c = (X && X[st]) || [0, 0], n = c[0] + c[1];
+    return '<span class="r"' + (n ? ' title="Siang ' + c[0] + ' · Malam ' + c[1] + '" style="color:#8a5a0b;font-weight:600"' : ' style="color:#c5cbc6"') + '>' + (n ? nf(n) : '–') + '</span>';
+  };
+  const xTot = X ? Object.keys(X).filter(st => agg.rows.some(r => r.store === st)).reduce((a, st) => a + xOf(st), 0) : 0;
+  return '<div class="tbl x"><div style="min-width:' + (X ? 780 : 680) + 'px"><div class="tbar"><div class="t"><b>' + title + '</b><span>White collar ' + nf(agg.t[0] + agg.t[1]) + ' porsi · Blue collar ' + nf(agg.t[2] + agg.t[3]) + ' porsi' +
+    (xTot ? ' · ' + nf(xTot) + ' porsi dari karyawan store lain' : '') + '</span></div>' + (actions || '') + '</div>' +
+    '<div class="grp" style="grid-template-columns:' + cols + '"><span></span><span class="w">White collar</span><span class="b">Blue collar</span><span></span>' + (X ? '<span></span>' : '') + '</div>' +
+    '<div class="tr th" style="grid-template-columns:' + cols + ';padding:' + (headPad || '10px 20px 14px') + '"><span>Store</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Siang</span><span class="r">Malam</span><span class="r">Total</span>' +
+    (X ? '<span class="r" title="Porsi di store ini dari karyawan yang store asalnya berbeda (sudah termasuk di Total)">Dari store lain</span>' : '') + '</div>' +
+    agg.rows.map(r => '<div class="tr" style="grid-template-columns:' + cols + '"><span class="ell" style="font-weight:600">' + esc(r.store) + '</span>' + r.v.map(cell).join('') + '<span class="r" style="font-weight:700">' + nf(r.total) + '</span>' + (X ? xCell(r.store) : '') + '</div>').join('') +
     (agg.rows.length ? '' : '<div class="empty">Belum ada data karyawan.</div>') +
-    '<div class="tr tot" style="grid-template-columns:' + STORE_COLS + '"><span>Total</span>' + agg.t.map(cell).join('') + '<span class="r">' + nf(agg.total) + '</span></div></div></div>';
+    '<div class="tr tot" style="grid-template-columns:' + cols + '"><span>Total</span>' + agg.t.map(cell).join('') + '<span class="r">' + nf(agg.total) + '</span>' + (X ? '<span class="r">' + (xTot ? nf(xTot) : '–') + '</span>' : '') + '</div></div></div>';
 }
 
 function daySums(day) {
@@ -667,14 +678,27 @@ function cutEditView(H) {
     '<span class="nt">Berlaku untuk minggu yang belum terkunci. Karyawan melihat batas baru saat membuka aplikasi. Jika batas jatuh di minggu makan, hari ini dan hari yang sudah lewat tetap terkunci.</span></div>';
 }
 
+function cutCardView(ci) {
+  const H = S.hr;
+  return '<div class="cut' + (ci.lk ? ' lk' : '') + '"><div class="cut-r"><div class="t"><b>' + ci.head + '</b><span>' + ci.sub + '</span></div>' +
+    (H.cutEdit ? '' : '<button class="btn" data-a="cutEdit">Atur batas</button>') + '</div>' +
+    (H.cutEdit ? cutEditView(H) : '') + '</div>';
+}
+// Whether a day's portions can still change: final (today/past), fixed (both collars past cutoff), part (one collar), open.
+function dayLock(k, now) {
+  if (k <= now.key) return { st: 'final', tip: k < now.key ? 'Sudah lewat · data final' : 'Hari ini · porsi sudah pasti' };
+  const p = COLLARS.map(col => ({ col, lk: weekLocked(k, now, col), c: cutoffOf(k, col) }));
+  const tip = p.map(x => collarName(x.col) + (x.lk ? ' sudah pasti' : ' ditutup ' + cutLabel(x.c))).join(' · ');
+  return { st: p.every(x => x.lk) ? 'fixed' : p.some(x => x.lk) ? 'part' : 'open', tip };
+}
+const LOCK_PILL = { final: 'Final', fixed: 'Sudah pasti', part: 'Sebagian pasti', open: 'Bisa berubah' };
+
 function dayView() {
   const H = S.hr, now = nowJ(), day = curDay(), ci = cutInfo(H.date, now);
   const minD = addDays(now.key, -400), maxD = addDays(now.key, 120);
   let h = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><span class="h20">' + fmtLong(H.date) + '</span>' +
     '<input type="date" class="input lg" style="width:200px" data-ch="hrDate" value="' + H.date + '" min="' + minD + '" max="' + maxD + '"></div>';
-  h += '<div class="cut' + (ci.lk ? ' lk' : '') + '"><div class="cut-r"><div class="t"><b>' + ci.head + '</b><span>' + ci.sub + '</span></div>' +
-    (H.cutEdit ? '' : '<button class="btn" data-a="cutEdit">Atur batas</button>') + '</div>' +
-    (H.cutEdit ? cutEditView(H) : '') + '</div>';
+  h += cutCardView(ci);
   if (!day) return h + skelView(8);
 
   const s = daySums(day);
@@ -694,7 +718,7 @@ function dayView() {
     '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
     '<div style="overflow-x:auto"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
     sortCols.map(c => { const on = H.sort.k === c[0]; return '<button class="sort' + (on ? ' on' : '') + (c[2] ? ' num' : '') + '" data-a="sort" data-k="' + c[0] + '">' + c[1] + '<span style="font-size:12px">' + (on ? (H.sort.dir > 0 ? '▲' : '▼') : '') + '</span></button>'; }).join('') + '</div>' +
-    '<div class="tbody" data-keep="detail">' + rows.map(r => '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#4a524d">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span><span class="ell" style="color:#4a524d">' + esc(r.store) + '</span>' +
+    '<div class="tbody" data-keep="detail">' + rows.map(r => '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#4a524d">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span><span class="ell" style="color:#4a524d"' + (r.home && r.home !== r.store ? ' title="Store asal: ' + esc(r.home) + '"' : '') + '>' + esc(r.store) + (r.home && r.home !== r.store ? ' <span style="color:#8a5a0b;font-size:12px">· asal ' + esc(r.home) + '</span>' : '') + '</span>' +
       '<span class="r" style="color:' + (r.l ? '#1d211f' : '#c5cbc6') + '">' + (r.l || '–') + '</span><span class="r" style="color:' + (r.d ? '#1d211f' : '#c5cbc6') + '">' + (r.d || '–') + '</span></div>').join('') +
     (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
     '</div></div></div></div>';
@@ -709,9 +733,19 @@ function skelView(rows) {
     Array.from({ length: rows }, () => '<div class="tr" style="grid-template-columns:2fr 1fr 1fr 1fr">' + skBar('70%') + skBar('50%') + skBar('50%') + skBar('40%') + '</div>').join('') + '</div>';
 }
 
-function statView(label, value, sub, warnSub, color, meal) {
+// `extra` is trusted HTML appended under the sub line (e.g. the comparison with the previous period).
+function statView(label, value, sub, warnSub, color, meal, extra) {
   if (meal === 'dinner' && !color) color = MC.dinner.x;
-  return '<div class="stat"><span class="l">' + (meal ? swatch(meal) : '') + label + '</span><span class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</span><span class="s' + (warnSub ? ' warn' : '') + '">' + esc(sub) + '</span></div>';
+  return '<div class="stat"><span class="l">' + (meal ? swatch(meal) : '') + label + '</span><span class="v"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</span><span class="s' + (warnSub ? ' warn' : '') + '">' + esc(sub) + '</span>' + (extra || '') + '</div>';
+}
+// "▲ +12 (+8%) vs minggu lalu"; the previous total is in the tooltip.
+function deltaView(cur, prev, label) {
+  if (prev == null) return '';
+  const d = cur - prev;
+  if (!prev && !cur) return '';
+  const pc = prev ? Math.round(d / prev * 100) : null;
+  const txt = !d ? 'Sama dengan ' + label : (d > 0 ? '▲ +' : '▼ −') + nf(Math.abs(d)) + (pc != null ? ' (' + (d > 0 ? '+' : '−') + Math.abs(pc) + '%)' : '') + ' vs ' + label;
+  return '<span class="delta' + (d > 0 ? ' up' : d < 0 ? ' dn' : '') + '" title="' + label.charAt(0).toUpperCase() + label.slice(1) + ': ' + nf(prev) + ' porsi">' + txt + '</span>';
 }
 
 function detailRows(day) {
@@ -738,25 +772,54 @@ function monthAgg(yms) {
   return { days, stores, split };
 }
 
-// Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date.
-function rangeView(m, now, long) {
-  let tL = 0, tD = 0, h = '';
-  m.days.forEach(x => { tL += x.l; tD += x.d; });
-  const wd = m.days.filter(x => dow(x.date) < 5);
+// Days of a weekly/monthly recap narrowed to one store ('all' = every store): per-day totals, store split
+// and portions from other stores, all rebuilt from each day's `s` (store -> [wl, wd, bl, bd, xl, xd]).
+function rangeData(m, store) {
+  const split = {}, cross = {}, all = m.stores.slice();
+  const days = m.days.map(x => {
+    let l = 0, d = 0;
+    Object.keys(x.s || {}).forEach(st => {
+      const v = x.s[st];
+      if (all.indexOf(st) < 0) all.push(st);
+      if (store !== 'all' && st !== store) return;
+      split[st] = (split[st] || [0, 0, 0, 0]).map((n, i) => n + v[i]);
+      cross[st] = (cross[st] || [0, 0]).map((n, i) => n + v[4 + i]);
+      l += v[0] + v[2]; d += v[1] + v[3];
+    });
+    return Object.assign({}, x, { l, d });
+  });
+  return { days, split, cross, all, stores: store === 'all' ? all : [store] };
+}
+const sumDays = days => days.reduce((a, x) => [a[0] + x.l, a[1] + x.d], [0, 0]);
+function rangeStoreSelect(all) {
+  const st = S.hr.rStore;
+  return '<select class="input lg" style="width:190px" data-ch="rStore" aria-label="Filter store"><option value="all">Semua store</option>' +
+    all.slice().sort(byStoreName).map(x => '<option' + (x === st ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>';
+}
+
+// Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date;
+// `prev` (same shape, or null) and `prevLabel` add a comparison with the previous period.
+function rangeView(m, now, long, prev, prevLabel) {
+  const R = rangeData(m, S.hr.rStore), P = prev ? sumDays(rangeData(prev, S.hr.rStore).days) : null;
+  const [tL, tD] = sumDays(R.days);
+  let h = '';
+  const wd = R.days.filter(x => dow(x.date) < 5);
   const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
-  const peak = m.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, m.days[0]);
-  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch') +
-    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner') +
-    statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran') + '</div>';
-  h += storeTableView('Per store', storeAgg(m.stores, m.split), '', '10px 20px 14px');
-  const max = Math.max(1, ...m.days.map(x => x.l + x.d));
-  h += '<div class="tbl x"><div style="min-width:640px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
-    m.days.map(x => {
-      const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key;
+  const peak = R.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, R.days[0]);
+  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
+    statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner', P && deltaView(tD, P[1], prevLabel)) +
+    statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
+  h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
+  const max = Math.max(1, ...R.days.map(x => x.l + x.d));
+  h += '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
+    R.days.map(x => {
+      const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key, lk = dayLock(x.date, now);
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
+      const lockPill = full ? '' : '<span class="pill sm lk-' + lk.st + '" title="' + esc(lk.tip) + '">' + LOCK_PILL[lk.st] + '</span>';
       const numFg = full ? '#9aa39d' : '#1d211f';
       return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#fafbf9' : '') + '">' +
-        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (long ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' + pill +
+        '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (long ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' +
+        '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + pill + lockPill + '</span>' +
         '<span class="r" style="color:' + (x.lb ? '#9aa39d' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#9aa39d' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
         '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:' + MC.lunch.a + '"></div><div style="width:' + (x.d / max * 100) + '%;background:' + MC.dinner.a + '"></div></div>' +
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
@@ -765,12 +828,15 @@ function rangeView(m, now, long) {
   return h;
 }
 
+// The month before a single selected month (comparison); none when several months are selected.
+const prevMonthOf = yms => yms.length === 1 ? addMonths(yms[0], -1) : null;
 function monthView() {
-  const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1;
-  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + '<div class="spacer"></div>' +
+  const H = S.hr, now = nowJ(), yms = selMonths(), multi = yms.length > 1, ready = !yms.some(y => !H.monthCache[y]);
+  const pm = prevMonthOf(yms), m = ready ? monthAgg(yms) : null;
+  const h = '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' + msView('months') + (m ? rangeStoreSelect(rangeData(m, 'all').all) : '') + '<div class="spacer"></div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
-  if (yms.some(y => !H.monthCache[y])) return h + skelView(10);
-  return h + rangeView(monthAgg(yms), now, multi);
+  if (!m) return h + skelView(10);
+  return h + rangeView(m, now, multi, pm && H.monthCache[pm] ? H.monthCache[pm] : null, pm ? monthName(pm) : '');
 }
 
 // Weeks run Monday–Sunday; S.hr.ws is the Monday. Same date limits as the daily view.
@@ -783,11 +849,13 @@ function weekView() {
     '<span class="h20">' + periodTitle(ws, addDays(ws, 6)) + '</span>' +
     '<button class="btn lg" data-a="wkNav" data-n="7" title="Minggu berikutnya" aria-label="Minggu berikutnya"' + (nextOk ? '' : ' disabled') + '>' + ICON.right(18) + '</button></div>' +
     (ws === thisWs ? '<span class="pill buka">Minggu ini</span>' : '<button class="link" data-a="wkToday">Ke minggu ini</button>') +
-    '<div class="spacer"></div>' +
+    (w ? rangeStoreSelect(rangeData(w, 'all').all) : '') + '<div class="spacer"></div>' +
     '<input type="date" class="input lg" style="width:200px" data-ch="hrWeek" value="' + ws + '" min="' + weekMin(now) + '" max="' + weekMax(now) + '" title="Pilih tanggal mana saja; minggu dimulai Senin" aria-label="Pilih minggu">' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn lg" data-a="exportKitchen">Ekspor untuk dapur</button><button class="btn lg" data-a="exportDetail">Ekspor detail karyawan</button></div></div>';
   if (!w) return h + skelView(7);
-  return h + rangeView(w, now, true);
+  // Cutoff card for the week: the first day that can still change (tomorrow, or Monday for a future week).
+  const we = addDays(ws, 6), tm = addDays(now.key, 1), ck = ws > now.key ? ws : tm <= we ? tm : we;
+  return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, H.weekCache[addDays(ws, -7)] || null, 'minggu lalu');
 }
 
 // ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
@@ -1120,8 +1188,8 @@ function ensureData() {
       loadDay(H.date);
       if (curDay()) [addDays(H.date, -1), addDays(H.date, 1)].forEach(k => { if (!H.days[k]) loadDay(k); });   // prefetch neighbours
     }
-    if (H.mode === 'week' && !fresh(H.weekCache[H.ws], 120000)) load('week:' + H.ws, 'adminWeek', { ws: H.ws }, d => { H.weekCache[d.ws] = d; });
-    if (H.mode === 'month') selMonths().forEach(y => { if (!fresh(H.monthCache[y], 120000)) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
+    if (H.mode === 'week') [H.ws, addDays(H.ws, -7)].forEach(w => { if (!fresh(H.weekCache[w], 120000)) load('week:' + w, 'adminWeek', { ws: w }, d => { H.weekCache[d.ws] = d; }); });
+    if (H.mode === 'month') selMonths().concat(prevMonthOf(selMonths()) || []).forEach(y => { if (!fresh(H.monthCache[y], 120000)) load('month:' + y, 'adminMonth', { ym: y }, d => { H.monthCache[d.ym] = d; }); });
     if (H.mode === 'fb') {
       const R = H.fbRange, same = H.fb && H.fb.from === R.from && H.fb.to === R.to;
       if (!same || !fresh(H.fb, 60000)) load('fb:' + R.from + ':' + R.to, 'adminFeedback', R, d => { if (d.from === H.fbRange.from && d.to === H.fbRange.to) H.fb = d; });
@@ -1160,7 +1228,7 @@ function storeLines(agg) {
 }
 const collarName = c => c === 'blue' ? 'Blue collar' : 'White collar';
 const monthsSlug = yms => yms.length === 1 ? yms[0] : yms[0] + '_' + yms[yms.length - 1] + '_' + yms.length + 'bulan';
-const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi)';
+const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi),Store asal';
 
 // ------------------------------------------------------------ actions
 const A = {
@@ -1289,7 +1357,9 @@ const A = {
   exportKitchen() {
     const H = S.hr;
     const rangeLines = m => {
-      const lines = ['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan'];
+      const R = rangeData(m, H.rStore);
+      m = Object.assign({}, m, { days: R.days, stores: R.stores, split: R.split });
+      const lines = (H.rStore === 'all' ? [] : ['Store,' + csvq(H.rStore)]).concat(['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan']);
       m.days.forEach(x => { const b = x.lb || x.db; lines.push([x.date, x.l, x.d, x.l + x.d, b ? csvq('Tutup ' + (x.lb && x.db ? 'siang+malam' : x.lb ? 'siang' : 'malam') + ': ' + b.reason) : ''].join(',')); });
       lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
       return lines;
@@ -1311,7 +1381,7 @@ const A = {
   },
   exportDetail() {
     const H = S.hr;
-    const detailLines = rows => [DETAIL_H].concat(rows.map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7]].join(',')));
+    const detailLines = rows => [DETAIL_H].concat(rows.filter(r => H.rStore === 'all' || r[4] === H.rStore).map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7], csvq(r[8] || r[4])].join(',')));
     if (H.mode === 'week') {
       const ws = H.ws;
       call('adminWeekDetail', { ws }).then(rows => download('detail-karyawan-minggu-' + ws + '.csv', detailLines(rows), 'Detail karyawan diekspor')).catch(fail);
@@ -1325,7 +1395,7 @@ const A = {
       return;
     }
     const d = curDay(); if (!d) return;
-    download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d].join(','))), 'Detail karyawan diekspor');
+    download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d, csvq(r.home || r.store)].join(','))), 'Detail karyawan diekspor');
   },
   exportFb() {
     if (!S.hr.fb) return;
@@ -1445,6 +1515,7 @@ const CH = {
     ds.forEach(k => fillDay(k, parts[1], now));
     flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
   },
+  rStore(v) { S.hr.rStore = v; render(); },
   hrWeek(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.ws = addDays(v, -dow(v)); render(); } },
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },

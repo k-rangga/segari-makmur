@@ -711,7 +711,8 @@ function joinDay_(k, regs, closures, empMap) {
     const l = lb ? 0 : r.l, d = db ? 0 : r.d;
     if (!l && !d) return;
     const e = empMap[r.nik] || { nik: r.nik, name: '(NIK tidak dikenal)', dept: '', store: 'Tanpa store', collar: 'white' };
-    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: r.st || e.store, collar: e.collar, l, d });
+    // store = where the portions are eaten (picked on submit); home = the employee's own store.
+    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: r.st || e.store, home: e.store, collar: e.collar, l, d });
   });
   return { rows, lb, db };
 }
@@ -724,7 +725,11 @@ function adminDay_(k) {
   return { date: k, rows: j.rows, lb: j.lb, db: j.db, stores: storesOf_(emps), settings: settings_(), now: now_() };
 }
 
-/** Per-day totals and the per-store split for `from`–`to` (used by the weekly and monthly recaps). */
+/**
+ * Per-day totals and the per-store split for `from`–`to` (used by the weekly and monthly recaps).
+ * Each day also carries `s`: store -> [white siang, white malam, blue siang, blue malam, siang from other stores, malam from other stores],
+ * so the client can filter by store and show portions eaten by employees from another store.
+ */
 function rangeAgg_(from, to) {
   const emps = employees_(), em = empMap_(emps), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_();
   const stores = storesOf_(emps), split = {};
@@ -733,13 +738,16 @@ function rangeAgg_(from, to) {
   for (let k = from; k <= to; k = addDays_(k, 1)) {
     const j = joinDay_(k, byDate[k] || [], closures, em);
     let l = 0, d = 0, pl = 0, pd = 0;
+    const s = {};
     j.rows.forEach(r => {
       l += r.l; d += r.d; if (r.l) pl++; if (r.d) pd++;
       if (!split[r.store]) { split[r.store] = [0, 0, 0, 0]; stores.push(r.store); }
-      const o = r.collar === 'white' ? 0 : 2;
+      const o = r.collar === 'white' ? 0 : 2, v = s[r.store] || (s[r.store] = [0, 0, 0, 0, 0, 0]);
       split[r.store][o] += r.l; split[r.store][o + 1] += r.d;
+      v[o] += r.l; v[o + 1] += r.d;
+      if (r.store !== r.home) { v[4] += r.l; v[5] += r.d; }
     });
-    days.push({ date: k, l, d, pl, pd, n: j.rows.length, lb: j.lb, db: j.db });
+    days.push({ date: k, l, d, pl, pd, n: j.rows.length, lb: j.lb, db: j.db, s });
   }
   return { days, stores, split, now: now_() };
 }
@@ -747,7 +755,7 @@ function rangeAgg_(from, to) {
 function rangeDetail_(from, to) {
   const em = empMap_(employees_()), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_(), out = [];
   for (let k = from; k <= to; k = addDays_(k, 1)) {
-    joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d]));
+    joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d, r.home]));
   }
   return out;
 }
