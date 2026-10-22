@@ -365,10 +365,12 @@ function thisWeekView(now) {
       const st = mealSt(k, mk);
       return '<div class="twm"><div class="twm-r"><span class="sq on' + dn + '">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + (st ? locLine(st, 'st-loc tw') : '') + fb + '</div>';
     }).join('');
-    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows + '</div>';
+    return '<div class="twd' + cls + '">' + (isT ? '<span class="badge">Hari ini</span>' : '') + '<div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b></div>' + rows + '</div>';
   }).join('');
+  // When any meal this week shows a store, every meal block reserves that line so rows line up across days.
+  const hasLoc = daysOf(ws, addDays(ws, 6)).some(k => savedSt(k));
   return '<div style="display:flex;flex-direction:column;gap:12px"><div class="tw-h"><b>Jadwal makanmu minggu ini</b><span>' + weekRange(ws) + ' · ' + n + ' porsi · ' + rp(n * S.price) + '</span></div>' +
-    '<div style="overflow-x:auto" data-keep="tw"><div class="tw">' + cards + '</div></div></div>';
+    '<div class="tw-scroll" data-keep="tw"><div class="tw' + (hasLoc ? ' loc' : '') + '">' + cards + '</div></div></div>';
 }
 
 function monthTotals(ym, now) {
@@ -410,16 +412,16 @@ function lockBarView(now) {
 function calToolbar() {
   const opts = [['wk-lunch', 'Hari kerja · Makan siang'], ['wk-both', 'Hari kerja · Siang + malam'], ['wk-dinner', 'Hari kerja · Makan malam'], ['all-lunch', 'Setiap hari · Makan siang'], ['all-both', 'Setiap hari · Siang + malam'], ['clear', 'Kosongkan bulan ini']];
   return '<div class="toolbar"><select class="input" style="min-width:240px" data-ch="quick"><option value="">Isi cepat…</option>' +
-    opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select><div class="spacer"></div>' +
+    opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select>' +
+    '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button><div class="spacer"></div>' +
     '<div class="legend"><span><i class="sw" style="background:#1f5f4a"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #1f5f4a;background:#eef5f1"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #d5d9d4;background:#fafbf9"></i>Belum dipilih</span>' +
-    ['lunch', 'dinner'].map(m => '<span style="height:24px;padding:0 8px;border-radius:999px;background:' + MC[m].t + ';color:' + MC[m].x + ';font-weight:600"><i class="sw" style="width:10px;height:10px;border-radius:3px;background:' + MC[m].a + '"></i>' + (m === 'lunch' ? 'Siang' : 'Malam') + '</span>').join('') + '</div>' +
-    '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button></div>';
+    ['lunch', 'dinner'].map(m => '<span style="height:24px;padding:0 8px;border-radius:999px;background:' + MC[m].t + ';color:' + MC[m].x + ';font-weight:600"><i class="sw" style="width:10px;height:10px;border-radius:3px;background:' + MC[m].a + '"></i>' + (m === 'lunch' ? 'Siang' : 'Malam') + '</span>').join('') + '</div></div>';
 }
 
 function calendarView(ym, now) {
   const today = now.key, first = ym + '-01', last = monthEnd(ym), nd = S.hideWknd ? 5 : 7;
-  const cols = S.hideWknd ? '130px repeat(5,minmax(110px,1fr))' : '130px repeat(7,minmax(96px,1fr))';
-  let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 700 : 860) + 'px"><span style="border-bottom:1px solid #e3e6e1"></span>';
+  const cols = S.hideWknd ? '148px repeat(5,minmax(110px,1fr))' : '148px repeat(7,minmax(96px,1fr))';
+  let h = '<div class="cal" data-keep="cal"><div class="cal-g" style="grid-template-columns:' + cols + ';min-width:' + (S.hideWknd ? 720 : 880) + 'px"><span style="border-bottom:1px solid #e3e6e1"></span>';
   h += DAYS.slice(0, nd).map((d, i) => '<span class="cal-dh" style="color:' + (i >= 5 ? '#5d6560' : '#1d211f') + '">' + d + '</span>').join('');
   for (let ws = addDays(first, -dow(first)); ws <= last; ws = addDays(ws, 7)) {
     const we = addDays(ws, 6), days = daysOf(ws, we), lk = weekLocked(ws, now), c = cutoffOf(ws);

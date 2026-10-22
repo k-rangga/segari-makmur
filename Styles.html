@@ -170,32 +170,37 @@ main.emp{gap:28px}
 .tw-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
 .tw-h b{font-size:18px;font-weight:700}
 .tw-h span{font-size:14px;color:#4a524d}
-.tw{display:grid;grid-template-columns:repeat(7,minmax(104px,1fr));gap:8px}
-.twd{border:1px solid #e3e6e1;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0;background:#FFFFFF}
-.twd.today{border:1.5px solid #1f5f4a;background:#eef5f1}
+.tw-scroll{overflow-x:auto;padding-top:9px;margin-top:-9px}
+.tw{display:grid;grid-template-columns:repeat(7,minmax(112px,1fr));gap:10px}
+.twd{position:relative;border:1px solid #e3e6e1;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0;background:#FFFFFF}
+.twd.today{border-color:#1f5f4a;box-shadow:inset 0 0 0 1px #1f5f4a;background:#eef5f1}
+/* "Hari ini" sits as a tab on the card's top edge so it never pushes the rows down. */
+.twd .badge{position:absolute;top:-9px;right:10px;font-size:10px;padding:2px 7px;line-height:14px}
 .twd.past{background:#fafbf9}
 .twd.off{background:#fafbf9}
-.twd-h{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;min-height:20px}
+.twd-h{display:flex;align-items:center;height:20px;padding-bottom:2px}
 .twd-h b{font-size:14px;font-weight:700;white-space:nowrap}
 .twd.past .twd-h b{color:#5d6560}
 /* Store location of a registered day (employee view). */
 .st-loc{display:flex;align-items:center;gap:4px;min-width:0;font-size:12px;font-weight:600;color:#4a524d}
 .st-loc svg{flex:none;color:#1f5f4a}
-.st-loc.tw{padding-left:26px;font-weight:500;color:#5d6560}
+.st-loc.tw{padding-left:26px;height:16px;font-size:12px;font-weight:500;color:#5d6560}
+.st-loc.tw svg{width:12px;height:12px}
+.tw.loc .twm{min-height:42px}
 /* Registered calendar chips show the meal's store under its name. */
 .mc.loc{flex-direction:column;align-items:flex-start;justify-content:center;gap:1px}
 .mc-loc{display:flex;align-items:center;gap:3px;max-width:100%;min-width:0;font-size:11px;font-weight:500;opacity:.9}
 .mc-loc svg{flex:none}
 .badge{font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;background:#1f5f4a;color:#FFFFFF;white-space:nowrap}
 .twm{display:flex;flex-direction:column;gap:4px;min-width:0}
-.twm-r{display:flex;align-items:center;gap:8px;font-size:13px;min-width:0}
+.twm-r{display:flex;align-items:center;gap:8px;height:22px;font-size:14px;min-width:0}
 .sq{flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:1.5px solid #d5d9d4}
 .sq.on{background:#1f5f4a;border:0;color:#FFFFFF}
 .sq.off{background:#eef0ec;border:0;color:#5d6560}
 .twm-r .n{color:#5d6560}
 .twm-r .n.on{font-weight:700;color:#1d211f}
 .twm-r .n.off{text-decoration:line-through}
-.fb-btn{width:100%;padding:4px 6px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #1f5f4a;background:#FFFFFF;color:#194e3d}
+.fb-btn{width:100%;margin-top:2px;padding:4px 6px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #1f5f4a;background:#FFFFFF;color:#194e3d}
 .fb-btn.done{border:1px solid #e3e6e1;background:#fafbf9;color:#5d6560}
 .sq.on.dn{background:#fdf3e1;border:1.5px solid #f7971f;color:#8a5a0b}
 .fb-btn.dn:not(.done){border-color:#f7971f;color:#8a5a0b}
@@ -206,29 +211,29 @@ main.emp{gap:28px}
 .cal-col{flex:1 1 680px;min-width:0;display:flex;flex-direction:column;gap:14px}
 .lockbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:#eef5f1;color:#194e3d;font-size:14px}
 .lockbar.lk{background:#fdf3e1;color:#8a5a0b}
-.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
 .legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:13px;color:#4a524d}
 .legend span{display:flex;align-items:center;gap:6px;white-space:nowrap}
 .sw{width:14px;height:14px;border-radius:4px}
 .cal{border:1px solid #e3e6e1;background:#FFFFFF;border-radius:12px;overflow-x:auto;user-select:none;-webkit-user-select:none}
 .cal-g{display:grid}
-.cal-dh{padding:12px 0;border-bottom:1px solid #e3e6e1;border-left:1px solid #EEF0EC;background:#fafbf9;font-size:12px;font-weight:600;text-align:center}
-.cal-wk{padding:10px 8px 10px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #EEF0EC}
+.cal-dh{padding:10px 0;border-bottom:1px solid #e3e6e1;border-left:1px solid #EEF0EC;background:#fafbf9;font-size:12px;font-weight:600;text-align:center}
+.cal-wk{padding:10px 12px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #EEF0EC}
 .cal-wk .lb{font-size:12px;line-height:1.35}
 .cal-wk .sum{display:flex;flex-direction:column;gap:1px}
 .cal-wk .sum span{font-size:12px;color:#4a524d}
 .cal-wk .sum b{font-size:13px;font-weight:700}
 .cal-wk .lk{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
-.cell{min-height:116px;padding:8px 6px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #EEF0EC;border-left:1px solid #EEF0EC;background:#FFFFFF}
+.cell{min-height:132px;padding:8px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #EEF0EC;border-left:1px solid #EEF0EC;background:#FFFFFF}
 .cell.dim{background:#fafbf9}
 .cell.closed{background:#fafbf9}
 .cell.today{box-shadow:inset 0 0 0 2px #1f5f4a}
-.cell-h{display:flex;justify-content:space-between;align-items:center;gap:4px;height:18px}
+.cell-h{display:flex;justify-content:space-between;align-items:center;gap:4px;height:18px;padding:0 2px}
 .cell-h b{font-size:14px;font-weight:700}
 .cell-h span{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cell.past .cell-h{opacity:.5}
 .cell.past .cell-h b,.cell.out .cell-h b{color:#9aa39d}
-.mc{height:44px;width:100%;display:flex;align-items:center;padding:0 7px;border-radius:6px;overflow:hidden;text-align:left;font-size:13px;font-weight:700;border:1px solid #d5d9d4;background:#fafbf9;color:#5d6560}
+.mc{height:44px;width:100%;display:flex;align-items:center;padding:0 8px;border-radius:8px;overflow:hidden;text-align:left;font-size:13px;font-weight:700;border:1px solid #d5d9d4;background:#fafbf9;color:#5d6560}
 .mc span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mc:not(:disabled):hover{filter:brightness(0.96)}
 .mc.pend{border:2px dashed #1f5f4a;background:#eef5f1;color:#194e3d}
