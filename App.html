@@ -965,7 +965,7 @@ function missingView(w, now) {
   list.forEach(e => { (by[e.store] = by[e.store] || []).push(e); });
   const stores = Object.keys(by).sort(byStoreName), lk = weekLock(w.ws, now);
   const note = lk === 'open' || lk === 'part' ? 'Masih bisa mendaftar sampai batas waktu, ingatkan sebelum minggu terkunci.' : 'Pendaftaran minggu ini sudah ditutup.';
-  return '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Belum mendaftar minggu ini</b><span>' + nf(list.length) + ' karyawan aktif tanpa porsi · ' + note + '</span></div>' +
+  return '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Belum mendaftar · ' + weekRange(w.ws) + '</b><span>' + nf(list.length) + ' karyawan aktif tanpa porsi · ' + note + '</span></div>' +
     (list.length ? '<button class="btn" data-a="exportMissing">Ekspor daftar</button><button class="btn" data-a="missToggle">' + (H.missOpen ? 'Sembunyikan' : 'Tampilkan') + '</button>' : '') + '</div>' +
     (H.missOpen ? '<div class="miss" data-keep="miss">' + stores.map(st => '<div class="miss-g"><b>' + esc(st) + ' <span>' + by[st].length + '</span></b><span>' + by[st].map(e => esc(e.name) + (e.dept ? ' <i>' + esc(e.dept) + '</i>' : '')).join(', ') + '</span></div>').join('') + '</div>' : '') +
     (list.length ? '' : '<div class="empty">Semua karyawan aktif sudah mendaftar.</div>') + '</div>';
