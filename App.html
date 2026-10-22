@@ -812,17 +812,17 @@ function rangeStoreSelect(all) {
 }
 
 // Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date;
-// `prev` (same shape, or null) and `prevLabel` add a comparison with the previous period.
-function rangeView(m, now, long, prev, prevLabel) {
+// `prev` (same shape, or null) and `prevLabel` add a comparison with the previous period; `statsFirst` puts the totals on top (weekly).
+function rangeView(m, now, long, prev, prevLabel, statsFirst) {
   const R = rangeData(m, S.hr.rStore), P = prev ? sumDays(rangeData(prev, S.hr.rStore).days) : null;
   const [tL, tD] = sumDays(R.days);
   let h = '';
   const wd = R.days.filter(x => dow(x.date) < 5);
   const avg = (ok, f) => { const v = wd.filter(ok); return v.length ? Math.round(v.reduce((a, x) => a + f(x), 0) / v.length) : 0; };
   const peak = R.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, R.days[0]);
-  // Top-down: the per-day table first, then the period totals and the store split.
+  // Top-down: the per-day table, then the period totals and the store split (totals first when `statsFirst`).
   const max = Math.max(1, ...R.days.map(x => x.l + x.d));
-  h += '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
+  const dayTbl = '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
     R.days.map(x => {
       const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key, lk = dayLock(x.date, now);
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
@@ -836,9 +836,10 @@ function rangeView(m, now, long, prev, prevLabel) {
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
     }).join('') +
     '<div class="tr tot" style="grid-template-columns:' + MONTH_COLS + '"><span>Total</span><span></span><span class="r">' + nf(tL) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(tD) + '</span><span class="r">' + nf(tL + tD) + '</span></div></div></div>';
-  h += '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
+  const stats = '<div class="stats">' + statView('Makan siang', nf(tL), 'Rata-rata ' + avg(x => !x.lb, x => x.l) + ' per hari kerja', false, null, 'lunch', P && deltaView(tL, P[0], prevLabel)) +
     statView('Makan malam', nf(tD), 'Rata-rata ' + avg(x => !x.db, x => x.d) + ' per hari kerja', false, null, 'dinner', P && deltaView(tD, P[1], prevLabel)) +
     statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
+  h += statsFirst ? stats + dayTbl : dayTbl + stats;
   h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
   return h;
 }
@@ -903,7 +904,7 @@ function weekView() {
   if (!w) return h + skelView(7);
   // Cutoff card for the week: the first day that can still change (tomorrow, or Monday for a future week).
   const we = addDays(ws, 6), tm = addDays(now.key, 1), ck = ws > now.key ? ws : tm <= we ? tm : we;
-  return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, H.weekCache[addDays(ws, -7)] || null, 'minggu lalu');
+  return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, H.weekCache[addDays(ws, -7)] || null, 'minggu lalu', true);
 }
 
 // ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
