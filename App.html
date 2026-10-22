@@ -74,7 +74,7 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '',
+  stores: [], store: '', storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
   hr: { mode: 'day', date: '', ws: '', weekCache: {}, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
@@ -170,6 +170,7 @@ function renderNow() {
     if (el) { el.focus(); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch (e) { /* no selection API */ } }
   }
   if (S.dp) dpPaint();
+  if (S.storeFocus) { S.storeFocus = false; const q = root.querySelector('[data-f="storeQ"]'); if (q) q.focus(); }
   ensureData();
 }
 
@@ -483,10 +484,25 @@ function voucherBox(pend) {
     '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
 }
 
+// Searchable store picker: opens upward from the pending bar, filters as you type, arrows + Enter to pick.
+function storeMatches() {
+  const q = S.storeQ.trim().toLowerCase();
+  return S.stores.filter(st => !q || st.toLowerCase().indexOf(q) >= 0);
+}
+function closeStore() { S.storeOpen = false; S.storeQ = ''; S.storeHi = 0; }
+function pickStore(st) { S.store = st; closeStore(); render(); }
 function storeBox() {
-  return '<select class="vstore' + (S.store ? '' : ' empty') + '" data-ch="store" aria-label="Lokasi store" title="Lokasi store tempat kamu makan">' +
-    (S.store ? '' : '<option value="" selected disabled>Pilih lokasi store</option>') +
-    S.stores.map(st => '<option' + (st === S.store ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>';
+  let h = '<div class="sbox" data-store-root><button type="button" class="vstore' + (S.store ? '' : ' empty') + '" data-a="storeToggle" aria-haspopup="listbox" aria-expanded="' + S.storeOpen + '" title="Lokasi store tempat kamu makan">' +
+    '<span class="ell">' + esc(S.store || 'Pilih lokasi store') + '</span></button>';
+  if (S.storeOpen) {
+    const list = storeMatches(), hi = Math.max(0, Math.min(S.storeHi, list.length - 1));
+    h += '<div class="sbox-pop" role="dialog" aria-label="Pilih lokasi store">' +
+      '<input class="input" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store" autocomplete="off" spellcheck="false" aria-label="Cari store">' +
+      '<div class="sbox-list" role="listbox" data-keep="storeList">' + list.map((st, i) =>
+        '<button type="button" role="option" aria-selected="' + (st === S.store) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (st === S.store ? ' on' : '') + '" data-a="storePick" data-v="' + esc(st) + '"><span class="ell">' + esc(st) + '</span>' + (st === S.store ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
+      (list.length ? '' : '<span class="sbox-empty">Store tidak ditemukan</span>') + '</div></div>';
+  }
+  return h + '</div>';
 }
 
 function pendingBarView(pend, now) {
@@ -1221,6 +1237,8 @@ const A = {
     }));
     render();
   },
+  storeToggle() { if (S.storeOpen) closeStore(); else { S.storeOpen = true; S.storeFocus = true; S.storeHi = Math.max(0, S.stores.indexOf(S.store)); } render(); },
+  storePick(el) { pickStore(el.dataset.v); },
   closePop() { S.pop = null; render(); },
   qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
   popRemove() { const P = S.pop; setQty(P.k, P.mk, 0); S.pop = null; render(); },
@@ -1414,6 +1432,7 @@ const IN = {
   q(v) { S.hr.q = v; render(); },
   clReason(v) { S.cl.reason = v; render(); },
   vcode(v) { S.vcode = v; },
+  storeQ(v) { S.storeQ = v; S.storeHi = 0; render(); },
   vcText(v) { S.vc.text = v; render(); },
   vcq(v) { S.vc.q = v; render(); }
 };
@@ -1426,7 +1445,6 @@ const CH = {
     ds.forEach(k => fillDay(k, parts[1], now));
     flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
   },
-  store(v) { S.store = v; render(); },
   hrWeek(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.ws = addDays(v, -dow(v)); render(); } },
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
@@ -1459,6 +1477,7 @@ function init() {
   root = document.getElementById('app');
   root.addEventListener('click', e => {
     if (S.ms && !e.target.closest('[data-ms-root]')) { S.ms = null; render(); }
+    if (S.storeOpen && !e.target.closest('[data-store-root]')) { closeStore(); render(); }
     const c = chipOf(e.target);
     if (c) {
       if (S.suppress) { S.suppress = false; return; }
@@ -1497,7 +1516,19 @@ function init() {
   window.addEventListener('resize', () => { if (S.pop) S.pop = null; if (S.user) render(); });
   window.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
+    if (S.storeOpen && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
+      const list = storeMatches();
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        S.storeHi = Math.max(0, Math.min(list.length - 1, Math.min(S.storeHi, list.length - 1) + (e.key === 'ArrowDown' ? 1 : -1)));
+        render();
+        setTimeout(() => { const o = root.querySelector('.sbox-opt.hi'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
+        return;
+      }
+      if (e.key === 'Enter') { e.preventDefault(); const st = list[Math.min(S.storeHi, list.length - 1)]; if (st) pickStore(st); return; }
+    }
     if (e.key !== 'Escape') return;
+    if (S.storeOpen) { closeStore(); return render(); }
     if (S.ms) { S.ms = null; return render(); }
     if (S.dp) { S.dp = null; return render(); }
     if (S.pop) { S.pop = null; render(); } else if (S.fbDraft) { S.fbDraft = null; render(); } else if (S.hr.print) { S.hr.print = false; render(); }
