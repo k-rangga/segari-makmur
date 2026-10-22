@@ -137,6 +137,9 @@ const blockOf = (list, k, meal) => list.find(c => c.date === k && (c.meal === 'b
 const savedQ = (k, mk) => (S.saved[k] || {})[mk] || 0;
 // Store location of a registered day (sent with the registration).
 const savedSt = k => { const v = S.saved[k]; return v && (v.l || v.d) ? v.st || '' : ''; };
+// Store location of one registered meal ('' when that meal isn't registered). One store per day for now.
+const mealSt = (k, mk) => savedQ(k, mk) ? savedSt(k) : '';
+const locLine = (st, cls) => '<span class="' + cls + '" title="Lokasi store">' + ICON.pin(cls === 'mc-loc' ? 11 : 12) + '<span class="ell">' + esc(st) + '</span></span>';
 const selQ = (k, mk) => (S.sel[k] || {})[mk] || 0;
 const mealStarted = (k, meal, now) => k < now.key || (k === now.key && now.min >= (meal === 'lunch' ? LUNCH_FB_FROM : DINNER_FB_FROM));
 const fbOpen = (k, now) => now.key <= addDays(k, S.fbEditDays);
@@ -359,11 +362,10 @@ function thisWeekView(now) {
         if (ex) fb = '<button class="fb-btn done' + dn + '" data-a="openFb" data-k="' + k + '" data-m="' + meal + '"' + (open ? ' title="Ubah penilaian"' : ' disabled') + '>Sudah dinilai · ' + RATE_LABEL[ex.r] + '</button>';
         else if (open) fb = '<button class="fb-btn' + dn + '" data-a="openFb" data-k="' + k + '" data-m="' + meal + '">Beri nilai</button>';
       }
-      return '<div class="twm"><div class="twm-r"><span class="sq on' + dn + '">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + fb + '</div>';
+      const st = mealSt(k, mk);
+      return '<div class="twm"><div class="twm-r"><span class="sq on' + dn + '">✓</span><span class="n on ell">' + name + (q > 1 ? ' ×' + q : '') + '</span></div>' + (st ? locLine(st, 'st-loc tw') : '') + fb + '</div>';
     }).join('');
-    const st = savedSt(k);
-    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows +
-      (st ? '<span class="st-loc" title="Lokasi store">' + ICON.pin(13) + '<span class="ell">' + esc(st) + '</span></span>' : '') + '</div>';
+    return '<div class="twd' + cls + '"><div class="twd-h"><b>' + DAYS[dow(k)] + ' ' + dnum(k) + '</b>' + (isT ? '<span class="badge">Hari ini</span>' : '') + '</div>' + rows + '</div>';
   }).join('');
   return '<div style="display:flex;flex-direction:column;gap:12px"><div class="tw-h"><b>Jadwal makanmu minggu ini</b><span>' + weekRange(ws) + ' · ' + n + ' porsi · ' + rp(n * S.price) + '</span></div>' +
     '<div style="overflow-x:auto" data-keep="tw"><div class="tw">' + cards + '</div></div></div>';
@@ -453,17 +455,16 @@ function cellView(k, ym, now) {
     if (blk) return '<button class="mc cls" disabled title="' + esc(name + ' · ' + blk.reason) + '"><span>' + name + '</span></button>';
     if (lk) {
       const q = savedQ(k, mk);
-      return '<button class="mc lk' + (q ? ' reg' : '') + (mk === 'd' ? ' dn' : '') + '" disabled title="' + name + (q ? ' · terdaftar' : '') + ' · terkunci"><span>' + name + (q > 1 ? ' ×' + q : '') + '</span></button>';
+      const loc = mealSt(k, mk);
+      return '<button class="mc lk' + (q ? ' reg' : '') + (loc ? ' loc' : '') + (mk === 'd' ? ' dn' : '') + '" disabled title="' + name + (q ? ' · terdaftar' : '') + (loc ? ' · ' + esc(loc) : '') + ' · terkunci"><span>' + name + (q > 1 ? ' ×' + q : '') + '</span>' + (loc ? locLine(loc, 'mc-loc') : '') + '</button>';
     }
     const q = selQ(k, mk), sq = savedQ(k, mk);
     const st = q === sq ? (q ? 'reg' : '') : q ? 'pend' : 'pend rm';
     const title = st === 'reg' ? 'terdaftar' : st === 'pend' ? 'belum dikirim' : st === 'pend rm' ? 'akan dihapus setelah dikirim' : 'belum dipilih';
-    const shown = q || sq;
-    return '<button class="mc ' + st + (mk === 'd' ? ' dn' : '') + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span></button>';
+    const shown = q || sq, loc = st === 'reg' ? mealSt(k, mk) : '';
+    return '<button class="mc ' + st + (loc ? ' loc' : '') + (mk === 'd' ? ' dn' : '') + '" data-chip="' + k + '|' + mk + '" title="' + name + ' · ' + title + (loc ? ' · ' + esc(loc) : '') + '"><span>' + name + (shown > 1 ? ' ×' + shown : '') + '</span>' + (loc ? locLine(loc, 'mc-loc') : '') + '</button>';
   }).join('');
-  const st = full ? '' : savedSt(k);
-  return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : st ? ' · ' + st : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips +
-    (st ? '<span class="st-loc sm">' + ICON.pin(12) + '<span class="ell">' + esc(st) + '</span></span>' : '') + '</div>';
+  return '<div class="cell' + cls + '" title="' + esc(fmt(k) + (full ? ' · ' + lb.reason : '')) + '"><div class="cell-h"><b>' + num + '</b><span style="color:' + tagFg + '">' + esc(tag) + '</span></div>' + chips + '</div>';
 }
 
 // Cost of newly added portions per month in the pending changes, and how a voucher splits over it.
