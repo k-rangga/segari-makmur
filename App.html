@@ -891,7 +891,7 @@ function weekPicker(now) {
 function dlMenu() {
   const H = S.hr;
   return '<div class="dl" data-dl-root><button class="btn lg dl-btn" data-a="dlToggle" aria-haspopup="menu" aria-expanded="' + H.dl + '"' + (H.pdfBusy ? ' disabled' : '') + '>' + ICON.down(18) + (H.pdfBusy ? 'Menyiapkan PDF…' : 'Unduh') + ICON.chev(16) + '</button>' +
-    (H.dl ? '<div class="dl-pop" role="menu">' + [['exportPdf', 'PDF rekap', 'Dengan logo Segari, siap dicetak'], ['exportKitchen', 'CSV untuk dapur', 'Porsi per hari dan per store'], ['exportDetail', 'CSV detail karyawan', 'Satu baris per karyawan per hari']]
+    (H.dl ? '<div class="dl-pop" role="menu">' + [['exportPdf', 'PDF untuk dapur', 'Dengan logo Segari, siap dicetak'], ['exportKitchen', 'CSV untuk dapur', 'Porsi per hari dan per store'], ['exportDetail', 'CSV detail karyawan', 'Satu baris per karyawan per hari']]
       .map(o => '<button type="button" role="menuitem" class="dl-opt" data-a="' + o[0] + '"><b>' + o[1] + '</b><span>' + o[2] + '</span></button>').join('') + '</div>' : '') + '</div>';
 }
 function weekView() {
