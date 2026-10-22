@@ -786,7 +786,8 @@ function adminMonthDetail_(ym) { checkMonth_(ym); return rangeDetail_(ym + '-01'
 /**
  * One week (Monday `ws`). Unless `lite` (used for the previous-week comparison) it also carries:
  * trend = the 8 weeks ending with this one, each { ws, s: store -> [siang, malam] };
- * missing = active employees with no portions at all this week (by home store), for reminders before the cutoff.
+ * missing = active employees with no portions at all this week (by home store), for reminders before the cutoff;
+ * part = home store -> [registered, active] employees this week; late = recent changes (see lateChanges_).
  */
 function adminWeek_(ws, lite) {
   checkWeek_(ws);
@@ -801,8 +802,45 @@ function adminWeek_(ws, lite) {
   const regd = {};
   regsMonths_(monthsBetween_(ws, we)).forEach(r => { if (r.date >= ws && r.date <= we && (r.l || r.d)) regd[r.nik] = true; });
   out.trend = trend;
-  out.missing = employees_().filter(e => e.active && !regd[e.nik]).map(e => ({ nik: e.nik, name: e.name, dept: e.dept, store: e.store, collar: e.collar }));
+  const active = employees_().filter(e => e.active), part = {};
+  active.forEach(e => { const c = part[e.store] || (part[e.store] = [0, 0]); c[1]++; if (regd[e.nik]) c[0]++; });
+  out.part = part;
+  out.missing = active.filter(e => !regd[e.nik]).map(e => ({ nik: e.nik, name: e.name, dept: e.dept, store: e.store, collar: e.collar }));
+  out.late = lateChanges_(ws, we);
   return out;
+}
+
+const LATE_HOURS = 24;
+/**
+ * Portions changed in the last LATE_HOURS for days `from`–`to`, from the append-only history in `pendaftaran`:
+ * date -> store -> [portions added, portions removed, employees who changed]. Closed meals count as 0.
+ * Reads Diperbarui raw (the sheet may have turned it into a date-time). Cached for CACHE_TTL.
+ */
+function lateChanges_(from, to) {
+  return cached_('late1:' + from + ':' + to, () => {
+    const sh = sheet_('pendaftaran'), n = sh.getLastRow() - 1, since = Date.now() - LATE_HOURS * 3600e3;
+    if (n < 1) return {};
+    const toMs = v => v instanceof Date ? v.getTime() : (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(String(v)) ? Date.parse(String(v).replace(' ', 'T') + '+07:00') : 0);
+    const emps = empMap_(employees_()), closures = closures_(), base = {}, last = {};
+    sh.getRange(2, 1, n, 6).getValues().forEach(r => {
+      const k = norm_(r[0]);
+      if (!isKey_(k) || k < from || k > to) return;
+      const nik = String(r[1]).replace(/\s/g, ''), key = k + '|' + nik;
+      const v = { l: blockOf_(closures, k, 'lunch') ? 0 : Math.max(0, parseInt(r[2], 10) || 0), d: blockOf_(closures, k, 'dinner') ? 0 : Math.max(0, parseInt(r[3], 10) || 0), st: String(r[5] || '').trim() };
+      if (toMs(r[4]) < since) { base[key] = v; delete last[key]; } else last[key] = v;
+    });
+    const out = {};
+    Object.keys(last).forEach(key => {
+      const k = key.slice(0, 10), nik = key.slice(11), b = base[key] || { l: 0, d: 0 }, v = last[key];
+      const diff = (v.l + v.d) - (b.l + b.d);
+      if (!diff && v.l === b.l && v.d === b.d) return;
+      const e = emps[nik], st = v.st || b.st || (e ? e.store : 'Tanpa store');
+      const c = (out[k] = out[k] || {})[st] || (out[k][st] = [0, 0, 0]);
+      if (diff > 0) c[0] += diff; else c[1] -= diff;
+      c[2]++;
+    });
+    return out;
+  });
 }
 function adminWeekDetail_(ws) { checkWeek_(ws); return rangeDetail_(ws, addDays_(ws, 6)); }
 

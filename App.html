@@ -846,6 +846,15 @@ function rangeData(m, store) {
   });
   return { days, split, cross, all, stores: store === 'all' ? all : [store] };
 }
+// Recent changes (week view): m.late = date -> store -> [added, removed, employees]; follows the store filter.
+const LATE_H = 24;
+function lateOf(m, k) {
+  const d = m.late && m.late[k];
+  if (!d) return null;
+  const t = Object.keys(d).reduce((a, st) => (S.hr.rStore === 'all' || st === S.hr.rStore) ? [a[0] + d[st][0], a[1] + d[st][1], a[2] + d[st][2]] : a, [0, 0, 0]);
+  return t[2] ? t : null;
+}
+const lateTxt = t => [t[0] ? '+' + nf(t[0]) : '', t[1] ? '−' + nf(t[1]) : ''].filter(Boolean).join(' ') || 'Berubah';
 const sumDays = days => days.reduce((a, x) => [a[0] + x.l, a[1] + x.d], [0, 0]);
 function rangeStoreSelect(all) {
   const st = S.hr.rStore;
@@ -865,15 +874,17 @@ function rangeView(m, now, long, prev, prevLabel, statsFirst, mid, afterStats) {
   const peak = R.days.reduce((a, x) => (x.l + x.d) > (a.l + a.d) ? x : a, R.days[0]);
   // Top-down: the per-day table, then the period totals and the store split (totals first when `statsFirst`).
   const max = Math.max(1, ...R.days.map(x => x.l + x.d));
-  const dayTbl = '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
+  const lateAll = R.days.reduce((a, x) => { const t = lateOf(m, x.date); return t ? [a[0] + t[0], a[1] + t[1], a[2] + t[2]] : a; }, [0, 0, 0]);
+  const dayTbl = (lateAll[2] ? '<div class="late-note">' + ICON.clock(16) + '<span><b>' + lateTxt(lateAll) + ' porsi</b> dalam ' + LATE_H + ' jam terakhir dari ' + lateAll[2] + ' perubahan karyawan. Hari yang berubah ditandai di tabel.</span></div>' : '') + '<div class="tbl x"><div style="min-width:700px"><div class="tr th p16" style="grid-template-columns:' + MONTH_COLS + '"><span>Tanggal</span><span>Status</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
     R.days.map(x => {
       const full = x.lb && x.db, we = dow(x.date) >= 5, past = x.date < now.key, isT = x.date === now.key, lk = dayLock(x.date, now);
       const pill = full ? '<span class="pill tutup">Tutup</span>' : we && !(x.l + x.d) ? '<span class="pill libur">Libur</span>' : '<span class="pill buka">Buka</span>';
       const lockPill = full ? '' : '<span class="pill sm lk-' + lk.st + '" title="' + esc(lk.tip) + '">' + LOCK_PILL[lk.st] + '</span>';
+      const lt = lateOf(m, x.date), latePill = lt ? '<span class="pill sm late" title="' + lt[2] + ' karyawan mengubah pendaftaran dalam ' + LATE_H + ' jam terakhir">' + lateTxt(lt) + '</span>' : '';
       const numFg = full ? '#9aa39d' : '#1d211f';
       return '<div class="tr click" data-a="openDay" data-k="' + x.date + '" title="Lihat daftar karyawan" style="grid-template-columns:' + MONTH_COLS + (full ? ';background:#fafbf9' : '') + '">' +
         '<span style="white-space:nowrap;font-weight:' + (isT ? 700 : 400) + ';color:' + (past ? '#5d6560' : '#1d211f') + '">' + (long ? fmt(x.date) : DAYS[dow(x.date)] + ' ' + dnum(x.date)) + '</span>' +
-        '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + pill + lockPill + '</span>' +
+        '<span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + pill + lockPill + latePill + '</span>' +
         '<span class="r" style="color:' + (x.lb ? '#9aa39d' : numFg) + '">' + (x.lb ? 'Tutup' : nf(x.l)) + '</span><span class="r" style="color:' + (x.db || full ? '#9aa39d' : MC.dinner.x) + '">' + (x.db ? 'Tutup' : nf(x.d)) + '</span>' +
         '<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0"><div class="bar8"><div style="width:' + (x.l / max * 100) + '%;background:' + MC.lunch.a + '"></div><div style="width:' + (x.d / max * 100) + '%;background:' + MC.dinner.a + '"></div></div>' +
         '<span class="r" style="min-width:40px;font-weight:700;color:' + numFg + '">' + nf(x.l + x.d) + '</span></div></div>';
@@ -959,17 +970,24 @@ function weekTrendView(w, now) {
       return '<button type="button" class="trend-c wk-c' + (on ? ' on' : '') + '" data-a="wkPick" data-ws="' + r.ws + '" title="' + weekRange(r.ws) + ': siang ' + r.v[0] + ' · malam ' + r.v[1] + '"><b>' + (n ? nf(n) : '—') + '</b>' +
         '<span class="stk" style="height:' + Math.max(n ? 3 : 0, hgt) + 'px"><i style="flex:' + r.v[1] + ';background:' + MC.dinner.a + '"></i><i style="flex:' + r.v[0] + ';background:' + MC.lunch.a + '"></i></span><span>' + dnum(r.ws) + ' ' + MON[mnum(r.ws)] + '</span></button>'; }).join('') + '</div></div>';
 }
-// W2: active employees with no portions in the selected week, by home store (only while the week isn't over).
+// W2: share of active employees (by home store) with any portion this week, lowest first, plus who hasn't registered
+// (list and CSV only while the week isn't over). Follows the store filter.
 function missingView(w, now) {
-  if (!w.missing || addDays(w.ws, 6) < now.key) return '';
-  const H = S.hr, list = w.missing.filter(e => H.rStore === 'all' || e.store === H.rStore), by = {};
+  if (!w.part) return '';
+  const H = S.hr, f = st => H.rStore === 'all' || st === H.rStore;
+  const stores = Object.keys(w.part).filter(f).map(st => ({ st, r: w.part[st][0], n: w.part[st][1] })).filter(x => x.n)
+    .sort((a, b) => a.r / a.n - b.r / b.n || byStoreName(a.st, b.st));
+  const R = stores.reduce((a, x) => a + x.r, 0), N = stores.reduce((a, x) => a + x.n, 0);
+  const open = addDays(w.ws, 6) >= now.key, list = open ? (w.missing || []).filter(e => f(e.store)) : [], by = {};
   list.forEach(e => { (by[e.store] = by[e.store] || []).push(e); });
-  const stores = Object.keys(by).sort(byStoreName), lk = weekLock(w.ws, now);
-  const note = lk === 'open' || lk === 'part' ? 'Masih bisa mendaftar sampai batas waktu, ingatkan sebelum minggu terkunci.' : 'Pendaftaran minggu ini sudah ditutup.';
-  return '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Belum mendaftar · ' + weekRange(w.ws) + '</b><span>' + nf(list.length) + ' karyawan aktif tanpa porsi · ' + note + '</span></div>' +
-    (list.length ? '<button class="btn" data-a="exportMissing">Ekspor daftar</button><button class="btn" data-a="missToggle">' + (H.missOpen ? 'Sembunyikan' : 'Tampilkan') + '</button>' : '') + '</div>' +
-    (H.missOpen ? '<div class="miss" data-keep="miss">' + stores.map(st => '<div class="miss-g"><b>' + esc(st) + ' <span>' + by[st].length + '</span></b><span>' + by[st].map(e => esc(e.name) + (e.dept ? ' <i>' + esc(e.dept) + '</i>' : '')).join(', ') + '</span></div>').join('') + '</div>' : '') +
-    (list.length ? '' : '<div class="empty">Semua karyawan aktif sudah mendaftar.</div>') + '</div>';
+  const lk = weekLock(w.ws, now), note = !open ? 'Minggu sudah lewat.' : lk === 'open' || lk === 'part' ? 'Masih bisa mendaftar, ingatkan sebelum minggu terkunci.' : 'Pendaftaran minggu ini sudah ditutup.';
+  const bar = p => '<span class="pbar"><i style="width:' + p + '%;background:' + (p < 60 ? '#f7971f' : '#1f5f4a') + '"></i></span>';
+  return '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Partisipasi · ' + weekRange(w.ws) + '</b><span>' + pct(R, N) + '% karyawan aktif mendaftar · ' + nf(R) + ' dari ' + nf(N) + ' · ' + note + '</span></div>' +
+    (list.length ? '<button class="btn" data-a="exportMissing">Ekspor belum daftar</button><button class="btn" data-a="missToggle">' + (H.missOpen ? 'Sembunyikan nama' : 'Lihat ' + nf(list.length) + ' belum daftar') + '</button>' : '') + '</div>' +
+    '<div class="part" data-keep="part">' + stores.map(x => { const p = pct(x.r, x.n);
+      return '<div class="part-r"><b class="ell">' + esc(x.st) + '</b>' + bar(p) + '<span class="r"><b' + (p < 60 ? ' style="color:#8a5a0b"' : '') + '>' + p + '%</b> · ' + x.r + '/' + x.n + '</span></div>' +
+        (H.missOpen && by[x.st] ? '<div class="part-miss">Belum daftar: ' + by[x.st].map(e => esc(e.name) + (e.dept ? ' <i>' + esc(e.dept) + '</i>' : '')).join(', ') + '</div>' : ''); }).join('') +
+    (stores.length ? '' : '<div class="empty">Belum ada data karyawan.</div>') + '</div></div>';
 }
 
 // "Unduh" menu for the weekly and monthly recaps: PDF and the two CSVs.
