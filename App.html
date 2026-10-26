@@ -994,7 +994,7 @@ function missingView(w, now) {
 function dlMenu() {
   const H = S.hr;
   return '<div class="dl" data-dl-root><button class="btn lg dl-btn" data-a="dlToggle" aria-haspopup="menu" aria-expanded="' + H.dl + '"' + (H.pdfBusy ? ' disabled' : '') + '>' + ICON.down(18) + (H.pdfBusy ? 'Menyiapkan PDF…' : 'Unduh') + ICON.chev(16) + '</button>' +
-    (H.dl ? '<div class="dl-pop" role="menu">' + [['exportPdf', 'PDF untuk dapur', 'Dengan logo Segari, siap dicetak'], ['exportKitchen', 'CSV untuk dapur', 'Porsi per hari dan per store'], ['exportDetail', 'CSV detail karyawan', 'Satu baris per karyawan per hari']]
+    (H.dl ? '<div class="dl-pop" role="menu">' + [['exportPdf', 'PDF untuk dapur', 'Dengan logo Segari, siap dicetak'], ['exportKitchen', 'CSV untuk dapur', 'Porsi per hari, semua store termasuk Tanpa store'], ['exportDetail', 'CSV detail karyawan', 'Satu baris per karyawan per hari']]
       .map(o => '<button type="button" role="menuitem" class="dl-opt" data-a="' + o[0] + '"><b>' + o[1] + '</b><span>' + o[2] + '</span></button>').join('') + '</div>' : '') + '</div>';
 }
 function weekView() {
@@ -1664,12 +1664,13 @@ const A = {
   openPrint() { const now = nowJ(); S.hr.print = true; S.hr.printAt = fmt(now.key) + ' ' + String(Math.floor(now.min / 60)).padStart(2, '0') + ':' + String(now.min % 60).padStart(2, '0'); render(); },
   closePrint() { S.hr.print = false; render(); },
   doPrint() { window.print(); },
+  // The kitchen CSV always covers every store, "Tanpa store" included, whatever the store filter on screen.
   exportKitchen() {
-    const H = S.hr;
+    const H = S.hr, withNone = st => st.indexOf('Tanpa store') < 0 ? st.concat(['Tanpa store']) : st;
     const rangeLines = m => {
-      const R = rangeData(m, H.rStore);
-      m = Object.assign({}, m, { days: R.days, stores: R.stores, split: R.split });
-      const lines = (H.rStore === 'all' ? [] : ['Store,' + csvq(H.rStore)]).concat(['Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan']);
+      const R = rangeData(m, 'all');
+      m = Object.assign({}, m, { days: R.days, stores: withNone(R.stores), split: R.split });
+      const lines = ['Store,Semua store', 'Tanggal,Makan siang (porsi),Makan malam (porsi),Total porsi,Catatan'];
       m.days.forEach(x => { const b = x.lb || x.db; lines.push([x.date, x.l, x.d, x.l + x.d, b ? csvq('Tutup ' + (x.lb && x.db ? 'siang+malam' : x.lb ? 'siang' : 'malam') + ': ' + b.reason) : ''].join(',')); });
       lines.push(''); storeLines(storeAgg(m.stores, m.split)).forEach(l => lines.push(l));
       return lines;
@@ -1686,7 +1687,7 @@ const A = {
     }
     const d = curDay(); if (!d) return;
     const s = daySums(d);
-    const lines = ['Tanggal,' + d.date, 'Makan siang,' + (d.lb ? 'Tutup' : s.l), 'Makan malam,' + (d.db ? 'Tutup' : s.d), ''].concat(storeLines(splitOfRows(d.rows, d.stores)));
+    const lines = ['Tanggal,' + d.date, 'Makan siang,' + (d.lb ? 'Tutup' : s.l), 'Makan malam,' + (d.db ? 'Tutup' : s.d), ''].concat(storeLines(splitOfRows(d.rows, withNone(d.stores))));
     download('dapur-porsi-' + d.date + '.csv', lines, 'Ekspor untuk dapur');
   },
   exportDetail() {
