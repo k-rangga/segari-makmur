@@ -41,10 +41,11 @@ input::placeholder,textarea::placeholder{color:#9aa39d}
 .dd{position:relative;max-width:100%}
 .dd-btn{width:100%;height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:8px;border:1px solid #d5d9d4;background:#FFFFFF;color:#1d211f;font-size:14px;text-align:left;cursor:pointer;outline:none}
 .dd-btn .ell{flex:1;min-width:0}
-.dd-btn svg{color:#5d6560;transition:transform .15s}
+.dd-btn:hover{border-color:#b9c2bb}
+.dd-btn svg{flex:none;margin-left:auto;color:#5d6560;transition:transform .15s}
 .dd-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
 .dd-btn:focus-visible,.dd-btn[aria-expanded="true"]{border:1.5px solid #1f5f4a}
-.dd-btn.ph{color:#5d6560}
+.dd-btn.dd-ph{color:#5d6560}
 .dd-btn.warn{border-color:#f7971f}
 .dd-btn:disabled{background:#f6f7f5;color:#9aa39d;cursor:not-allowed}
 .dd.lg .dd-btn{height:44px;padding:0 14px;font-size:15px}
@@ -64,7 +65,7 @@ main{max-width:1240px;margin:0 auto;padding:32px 32px 72px;display:flex;flex-dir
 main.emp{gap:28px}
 .ph{display:flex;flex-direction:column;gap:4px}
 .ph h1{margin:0;font-size:26px;font-weight:600;letter-spacing:-0.01em;line-height:1.2}
-.ph span{font-size:14px;color:#5d6560}
+.ph>span{font-size:14px;color:#5d6560}
 .team-pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
 .team-pick b{font-size:13px;font-weight:600;color:#4a524d}
 .h20{font-size:20px;font-weight:600;letter-spacing:-0.01em}
@@ -270,9 +271,10 @@ main.emp{gap:28px}
 /* range date picker (design system date-picker) */
 .dp-trig{display:flex;align-items:center;justify-content:space-between;gap:8px;height:44px;max-width:100%;padding:0 12px;border-radius:8px;border:1px solid #d5d9d4;background:#FFFFFF;color:#1d211f;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums;text-align:left}
 .dp-trig:hover{border-color:#b9c2bb}
+.dp-trig svg{flex:none;color:#5d6560;transition:transform .15s}
+.dp-trig.open svg{transform:rotate(180deg)}
 .dp-trig.open{border-color:#1f5f4a}
 .dp-trig:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(31,95,74,.15)}
-.dp-caret{font-size:11px;color:#7a837d}
 .dp-layer{position:fixed;inset:0;z-index:60}
 .dp-pop{position:fixed;z-index:61;max-height:calc(100vh - 16px);overflow-y:auto;border-radius:10px;background:#FFFFFF;padding:12px;box-shadow:0 8px 24px rgba(20,24,22,.14),0 0 0 1px rgba(20,24,22,.08)}
 .dp-months{display:flex;flex-wrap:wrap;gap:12px 20px}
