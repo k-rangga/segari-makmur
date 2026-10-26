@@ -18,7 +18,8 @@ const MC = { lunch: { a: '#1f5f4a', t: '#e4f3ea', x: '#194e3d' }, dinner: { a: '
 const swatch = meal => '<i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + MC[meal].a + ';margin-right:6px;vertical-align:1px"></i>';
 const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
 const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
-const DETAIL_COLS = '96px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
+// NIK column fits 14-character NIKs such as DW190220225816; longer ones get an ellipsis.
+const DETAIL_COLS = '150px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
 const MONTH_COLS = '110px minmax(190px,1.2fr) 80px 80px minmax(170px,1.3fr)';
 const FB_COLS = '110px 70px 80px minmax(0,1.2fr) minmax(0,1fr)';
 
@@ -739,7 +740,7 @@ function dayView() {
     '<select class="input" style="width:170px" data-ch="hrStore"><option value="all">Semua store</option>' + day.stores.map(st => '<option' + (H.store === st ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>' +
     '<input class="input" style="width:230px" data-f="q" data-in="q" value="' + esc(H.q) + '" placeholder="Cari nama, NIK, departemen">' +
     '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
-    '<div style="overflow-x:auto"><div style="min-width:760px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
+    '<div style="overflow-x:auto"><div style="min-width:800px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
     sortCols.map(c => { const on = H.sort.k === c[0]; return '<button class="sort' + (on ? ' on' : '') + (c[2] ? ' num' : '') + '" data-a="sort" data-k="' + c[0] + '">' + c[1] + '<span style="font-size:12px">' + (on ? (H.sort.dir > 0 ? '▲' : '▼') : '') + '</span></button>'; }).join('') + '</div>' +
     '<div class="tbody" data-keep="detail">' + detailBody(rows) +
     (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
@@ -776,7 +777,7 @@ const dayTag = (k, now) => { const n = Math.round((k2t(k) - k2t(now.key)) / 864e
 const qtyCell = q => '<span class="r' + (q > 1 ? ' qx' : '') + '"' + (q > 1 ? ' title="Termasuk ' + (q - 1) + ' porsi tambahan"' : '') + ' style="color:' + (q ? (q > 1 ? '#8a5a0b' : '#1d211f') : '#c5cbc6') + '">' + (q ? (q > 1 ? '×' + q : q) : '–') + '</span>';
 function detailRow(r) {
   const away = r.home && r.home !== r.store;
-  return '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum" style="color:#4a524d">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span>' +
+  return '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum ell" style="color:#4a524d" title="' + esc(r.nik) + '">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span>' +
     '<span class="ell" style="color:#4a524d"' + (away ? ' title="Store asal: ' + esc(r.home) + '"' : '') + '>' + esc(r.store) + (away ? ' <span style="color:#8a5a0b;font-size:12px">· asal ' + esc(r.home) + '</span>' : '') + '</span>' +
     qtyCell(r.l) + qtyCell(r.d) + '</div>';
 }
