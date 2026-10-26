@@ -19,7 +19,7 @@ const swatch = meal => '<i style="display:inline-block;width:8px;height:8px;bord
 const mealPill = meal => '<span style="justify-self:start;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;background:' + MC[meal].t + ';color:' + MC[meal].x + '">' + (meal === 'lunch' ? 'Siang' : 'Malam') + '</span>';
 const STORE_COLS = 'minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) minmax(80px,1fr)';
 // NIK column fits 14-character NIKs such as DW190220225816; longer ones get an ellipsis.
-const DETAIL_COLS = '150px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
+const DETAIL_COLS = '150px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 70px 70px';
 const MONTH_COLS = '110px minmax(190px,1.2fr) 80px 80px minmax(170px,1.3fr)';
 const FB_COLS = '110px 70px 80px minmax(0,1.2fr) minmax(0,1fr)';
 
@@ -67,7 +67,8 @@ const ICON = {
   clock: s => svg(s, '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>'),
   down: s => svg(s, '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path>'),
   pin: s => svg(s, '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.5"></circle>'),
-  chev: s => svg(s, '<path d="M6 9l6 6 6-6"></path>', 2)
+  chev: s => svg(s, '<path d="M6 9l6 6 6-6"></path>', 2),
+  users: s => svg(s, '<circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"></path>')
 };
 
 // ------------------------------------------------------------ state
@@ -78,12 +79,13 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '', storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
-  hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: true, missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
+  stores: [], store: '', teams: [], storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
+  hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: 'store', missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
   vc: { data: null, text: '', fileName: '', q: '', status: 'all', busy: false },
+  tm: { data: null, store: '', text: '', q: '', f: 'all', busy: false },
   dp: null, ms: null, loading: {}, loadErr: {}, toast: null
 };
 
@@ -187,7 +189,7 @@ function renderNow() {
 function view() {
   if (S.booting) return '<div class="boot">Memuat…</div>';
   if (!S.user) return loginView() + toastView();
-  const main = !S.user.admin || S.view === 'meal' ? empView() : S.view === 'recap' ? recapView() : S.view === 'closure' ? closureView() : S.view === 'voucher' ? voucherView() : empView();
+  const main = !S.user.admin || S.view === 'meal' ? empView() : S.view === 'recap' ? recapView() : S.view === 'closure' ? closureView() : S.view === 'voucher' ? voucherView() : S.view === 'team' ? teamView() : empView();
   return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + dpView() + fbModalView() + printView() + toastView();
 }
 
@@ -251,13 +253,13 @@ function signOut(msg) {
 function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
-  S.stores = d.stores || [];
+  S.stores = d.stores || []; S.teams = d.teams || [];
   // Store picked on submit: the last one used in this browser. Never filled from the employee sheet,
   // so the first send needs a real choice.
   if (S.stores.indexOf(S.store) < 0) S.store = S.stores.indexOf(ls.get('pm-store')) >= 0 ? ls.get('pm-store') : '';
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
-    S.view = d.user.admin && ['recap', 'closure', 'voucher'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
+    S.view = d.user.admin && ['recap', 'closure', 'voucher', 'team'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
     S.saved = clone(d.reg); S.sel = clone(d.reg); S.mi = 0;
     const now = nowJ();
     S.hr.date = now.key; S.hr.ws = addDays(now.key, -dow(now.key)); S.hr.yms = [now.key.slice(0, 7)];
@@ -288,7 +290,7 @@ async function boot() { applyBoot(await call('bootstrap')); }
 // ------------------------------------------------------------ sidebar
 function sideView() {
   const u = S.user, ini = esc(initials(u.name)), mini = S.navClosed || window.innerWidth < 760;
-  const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx], ['voucher', 'Voucher', ICON.ticket]] : []);
+  const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx], ['voucher', 'Voucher', ICON.ticket], ['team', 'Tim', ICON.users]] : []);
   const role = (u.admin ? 'Admin' : (u.dept || 'Karyawan')) + ' · NIK ' + u.nik;
   if (mini) {
     return '<aside class="side mini"><div class="logo">' + logoMark(40) + '</div><nav class="nav">' +
@@ -321,7 +323,7 @@ function empView() {
     h += '<div class="notice"><b>Pengumuman minggu ini</b>' + notes.map(cs => '<div class="notice-r"><span>' + esc(cs.length > 1 ? fmt(cs[0].date) + ' – ' + dnum(cs[cs.length - 1].date) : fmt(cs[0].date)) + '</span><span>Kantin tutup (' + MEAL_NAME[cs[0].meal].toLowerCase() + ') · ' + esc(cs[0].reason) + '. Tidak ada biaya.</span></div>').join('') + '</div>';
   }
 
-  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span></div>';
+  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span>' + teamPick() + '</div>';
 
   // feedback banner for today's lunch
   const bannerOn = savedQ(today, 'l') && !blockOf(S.closures, today, 'lunch') && mealStarted(today, 'lunch', now) && !S.fb[today + '-lunch'] && ls.get('pm-fbDismiss') !== today;
@@ -344,6 +346,14 @@ function empView() {
     '<span class="help">Ketuk untuk memilih, atau tahan dan geser untuk memilih beberapa hari sekaligus. Ketuk lagi untuk atur porsi atau hapus. Pilihan baru tercatat setelah kamu tekan Kirim pendaftaran.</span>' +
     pendingBarView(pend, now) + '</div>' + summaryView(ym, now, pend) + '</div>';
   return h + '</main>';
+}
+
+// The employee's own team, from the teams of their store (hidden while the store has none).
+function teamPick() {
+  const cur = S.user.team || '';
+  if (!S.teams.length) return '';
+  return '<label class="team-pick"><b>Tim kamu di ' + esc(S.user.store) + '</b><select class="input' + (cur ? '' : ' empty') + '" data-ch="myTeam" aria-label="Pilih tim">' +
+    '<option value="">' + (cur ? 'Tanpa tim' : 'Pilih tim') + '</option>' + S.teams.map(t => '<option' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>';
 }
 
 function thisWeekView(now) {
@@ -734,14 +744,14 @@ function dayView() {
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-a="openPrint">Cetak untuk dapur</button><button class="btn" data-a="exportPdf"' + (S.hr.pdfBusy ? ' disabled' : '') + '>' + (S.hr.pdfBusy ? 'Menyiapkan PDF…' : 'Unduh PDF') + '</button><button class="btn" data-a="exportKitchen">Ekspor untuk dapur</button></div>');
 
   const rows = detailRows(day), ex = rows.reduce((a, r) => a + extraOf(r), 0);
-  const sortCols = [['nik', 'NIK', 0], ['name', 'Nama', 0], ['dept', 'Departemen', 0], ['store', 'Store', 0], ['l', 'Siang', 1], ['d', 'Malam', 1]];
+  const sortCols = [['nik', 'NIK', 0], ['name', 'Nama', 0], ['dept', 'Departemen', 0], ['store', 'Store', 0], ['team', 'Tim', 0], ['l', 'Siang', 1], ['d', 'Malam', 1]];
   h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Detail karyawan</b><span>' + rows.length + ' karyawan' + (ex ? ' · ' + ex + ' porsi tambahan (tamu / dibawa pulang)' : '') + '</span></div>' +
-    '<label class="check"><input type="checkbox" data-ch="hrGroup"' + (H.group ? ' checked' : '') + '><span>Kelompokkan per store</span></label>' +
+    '<select class="input" style="width:170px" data-ch="hrGroup" aria-label="Kelompokkan">' + [['store', 'Per store'], ['team', 'Per tim'], ['', 'Tanpa kelompok']].map(o => '<option value="' + o[0] + '"' + (H.group === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
     '<select class="input" style="width:170px" data-ch="hrMeal">' + [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']].map(o => '<option value="' + o[0] + '"' + (H.meal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
     '<select class="input" style="width:170px" data-ch="hrStore"><option value="all">Semua store</option>' + day.stores.map(st => '<option' + (H.store === st ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>' +
-    '<input class="input" style="width:230px" data-f="q" data-in="q" value="' + esc(H.q) + '" placeholder="Cari nama, NIK, departemen">' +
+    '<input class="input" style="width:230px" data-f="q" data-in="q" value="' + esc(H.q) + '" placeholder="Cari nama, NIK, departemen, tim">' +
     '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
-    '<div style="overflow-x:auto"><div style="min-width:800px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
+    '<div style="overflow-x:auto"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
     sortCols.map(c => { const on = H.sort.k === c[0]; return '<button class="sort' + (on ? ' on' : '') + (c[2] ? ' num' : '') + '" data-a="sort" data-k="' + c[0] + '">' + c[1] + '<span style="font-size:12px">' + (on ? (H.sort.dir > 0 ? '▲' : '▼') : '') + '</span></button>'; }).join('') + '</div>' +
     '<div class="tbody" data-keep="detail">' + detailBody(rows) +
     (rows.length ? '' : '<div class="empty">' + (day.lb && day.db ? 'Kantin tutup pada tanggal ini.' : H.q ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan terdaftar.') + '</div>') +
@@ -780,16 +790,22 @@ function detailRow(r) {
   const away = r.home && r.home !== r.store;
   return '<div class="tr hov" style="grid-template-columns:' + DETAIL_COLS + '"><span class="tnum ell" style="color:#4a524d" title="' + esc(r.nik) + '">' + esc(r.nik) + '</span><span class="ell">' + esc(r.name) + '</span><span class="ell" style="color:#4a524d">' + esc(r.dept) + '</span>' +
     '<span class="ell" style="color:#4a524d"' + (away ? ' title="Store asal: ' + esc(r.home) + '"' : '') + '>' + esc(r.store) + (away ? ' <span style="color:#8a5a0b;font-size:12px">· asal ' + esc(r.home) + '</span>' : '') + '</span>' +
+    '<span class="ell" style="color:' + (r.team ? '#4a524d' : '#c5cbc6') + '"' + (r.team ? ' title="' + esc(r.team) + '"' : '') + '>' + (r.team ? esc(r.team) : '–') + '</span>' +
     qtyCell(r.l) + qtyCell(r.d) + '</div>';
 }
-// Grouped: one header per store (A–Z) with its subtotal, rows keep the chosen sort inside each store.
+// Grouped: one header per store (A–Z), or per team (own store, then team; "Tanpa tim" last), with its subtotal;
+// rows keep the chosen sort inside each group.
 function detailBody(rows) {
-  if (!S.hr.group) return rows.map(detailRow).join('');
-  const by = {};
-  rows.forEach(r => { (by[r.store] = by[r.store] || []).push(r); });
-  return Object.keys(by).sort(byStoreName).map(st => {
-    const g = by[st], l = g.reduce((a, r) => a + r.l, 0), d = g.reduce((a, r) => a + r.d, 0), x = g.reduce((a, r) => a + extraOf(r), 0);
-    return '<div class="tr grp-h" style="grid-template-columns:' + DETAIL_COLS + '"><span style="grid-column:1/5"><b>' + esc(st) + '</b> · ' + g.length + ' karyawan' + (x ? ' · ' + x + ' tambahan' : '') + '</span><span class="r">' + nf(l) + '</span><span class="r">' + nf(d) + '</span></div>' + g.map(detailRow).join('');
+  const G = S.hr.group;
+  if (!G) return rows.map(detailRow).join('');
+  const by = {}, keyOf = r => G === 'team' ? (r.home || r.store) + '\u0000' + (r.team || '') : r.store;
+  rows.forEach(r => { const k = keyOf(r); (by[k] = by[k] || []).push(r); });
+  const parts = k => k.split('\u0000');
+  const order = G === 'team' ? (a, b) => { const x = parts(a), y = parts(b); return byStoreName(x[0], y[0]) || (!x[1]) - (!y[1]) || x[1].localeCompare(y[1], 'id', { sensitivity: 'base', numeric: true }); } : byStoreName;
+  return Object.keys(by).sort(order).map(k => {
+    const g = by[k], l = g.reduce((a, r) => a + r.l, 0), d = g.reduce((a, r) => a + r.d, 0), x = g.reduce((a, r) => a + extraOf(r), 0), p = parts(k);
+    const title = G === 'team' ? '<b>' + esc(p[1] || 'Tanpa tim') + '</b> · ' + esc(p[0]) : '<b>' + esc(k) + '</b>';
+    return '<div class="tr grp-h" style="grid-template-columns:' + DETAIL_COLS + '"><span style="grid-column:1/6">' + title + ' · ' + g.length + ' karyawan' + (x ? ' · ' + x + ' tambahan' : '') + '</span><span class="r">' + nf(l) + '</span><span class="r">' + nf(d) + '</span></div>' + g.map(detailRow).join('');
   }).join('');
 }
 // Menu of the day and how it was rated, per meal; links to the Masukan tab for that day.
@@ -809,7 +825,7 @@ function dayMenuView(day, now) {
 function detailRows(day) {
   const H = S.hr, q = H.q.trim().toLowerCase(), so = H.sort;
   return day.rows.filter(r => (H.meal === 'all' || (H.meal === 'lunch' ? r.l : r.d)) && (H.store === 'all' || r.store === H.store) &&
-    (!q || (r.name + ' ' + r.nik + ' ' + r.dept + ' ' + r.store).toLowerCase().indexOf(q) >= 0))
+    (!q || (r.name + ' ' + r.nik + ' ' + r.dept + ' ' + r.store + ' ' + (r.team || '')).toLowerCase().indexOf(q) >= 0))
     .sort((a, b) => { const va = a[so.k], vb = b[so.k]; return ((typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * so.dir) || a.name.localeCompare(b.name); });
 }
 
@@ -817,17 +833,21 @@ function detailRows(day) {
 function monthOpts() { const cur = nowJ().key.slice(0, 7), o = []; for (let i = -6; i <= 2; i++) o.push(addMonths(cur, i)); return o; }
 function selMonths() { const o = monthOpts(), f = o.filter(y => S.hr.yms.indexOf(y) >= 0); return f.length ? f : o; }
 function monthAgg(yms) {
-  const days = [], stores = [], split = {};
+  const days = [], stores = [], split = {}, tm = {};
   yms.forEach(y => {
     const m = S.hr.monthCache[y];
     days.push.apply(days, m.days);
+    Object.keys(m.tm || {}).forEach(h => Object.keys(m.tm[h]).forEach(t => {
+      const a = tm[h] || (tm[h] = {}), v = m.tm[h][t], c = a[t] || [0, 0];
+      a[t] = [c[0] + v[0], c[1] + v[1]];
+    }));
     m.stores.forEach(st => {
       if (stores.indexOf(st) < 0) stores.push(st);
       const v = m.split[st] || [0, 0, 0, 0], cur = split[st] || [0, 0, 0, 0];
       split[st] = cur.map((n, i) => n + v[i]);
     });
   });
-  return { days, stores, split };
+  return { days, stores, split, tm };
 }
 
 // Days of a weekly/monthly recap narrowed to one store ('all' = every store): per-day totals, store split
@@ -897,7 +917,25 @@ function rangeView(m, now, long, prev, prevLabel, statsFirst, mid, afterStats) {
     statView('Total porsi', nf(tL + tD), peak && peak.l + peak.d ? 'Puncak ' + nf(peak.l + peak.d) + ' porsi · ' + fmt(peak.date) : 'Belum ada pendaftaran', false, null, null, P && deltaView(tL + tD, P[0] + P[1], prevLabel)) + '</div>';
   h += (statsFirst ? stats + (afterStats || '') + dayTbl : dayTbl + stats + (afterStats || '')) + (mid ? mid(R) : '');
   h += storeTableView(S.hr.rStore === 'all' ? 'Per store' : 'Store ' + esc(S.hr.rStore), Object.assign(storeAgg(R.stores, R.split), { cross: R.cross }), '', '10px 20px 14px');
-  return h;
+  return h + teamTableView(m.tm);
+}
+
+// Portions per team for the period, by the employee's own store and team; follows the store filter (as own store).
+// Hidden until someone with portions in the period has a team.
+function teamTableView(tm) {
+  const st = S.hr.rStore, rows = [];
+  Object.keys(tm || {}).filter(h => st === 'all' || h === st).forEach(h => Object.keys(tm[h]).forEach(t => {
+    const v = tm[h][t];
+    if (v[0] + v[1]) rows.push({ h, t, l: v[0], d: v[1] });
+  }));
+  if (!rows.some(r => r.t)) return '';
+  rows.sort((a, b) => byStoreName(a.h, b.h) || (!a.t) - (!b.t) || a.t.localeCompare(b.t, 'id', { sensitivity: 'base', numeric: true }));
+  const cols = 'minmax(140px,1.2fr) minmax(140px,1.2fr) repeat(3,minmax(70px,.6fr))', tot = rows.reduce((a, r) => [a[0] + r.l, a[1] + r.d], [0, 0]);
+  const line = (a, b, l, d, cls) => '<div class="tr' + (cls || '') + '" style="grid-template-columns:' + cols + '">' + a + b + '<span class="r">' + nf(l) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(d) + '</span><span class="r" style="font-weight:700">' + nf(l + d) + '</span></div>';
+  return '<div class="tbl x"><div style="min-width:640px"><div class="tbar"><div class="t"><b>Per tim</b><span>Menurut store asal dan tim karyawan' + (st === 'all' ? '' : ' · ' + esc(st)) + '</span></div></div>' +
+    '<div class="tr th" style="grid-template-columns:' + cols + '"><span>Store asal</span><span>Tim</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
+    rows.map(r => line('<span class="ell" style="color:#4a524d">' + esc(r.h) + '</span>', '<span class="ell" style="font-weight:600' + (r.t ? '' : ';color:#9aa39d') + '">' + esc(r.t || 'Tanpa tim') + '</span>', r.l, r.d)).join('') +
+    line('<span>Total</span>', '<span></span>', tot[0], tot[1], ' tot') + '</div></div>';
 }
 
 // The month before a single selected month (comparison); none when several months are selected.
@@ -1309,6 +1347,53 @@ function voucherView() {
   return h + '</main>';
 }
 
+// ------------------------------------------------------------ teams (admin)
+const TM_COLS = '150px minmax(0,1.3fr) minmax(0,1fr) 230px';
+const TEAM_MAX = 60;
+const teamNames = text => text.split(/[\n,;]+/).map(t => t.trim().replace(/\s+/g, ' ')).filter(Boolean);
+function tmStore() { const D = S.tm.data; return !D ? '' : D.stores.indexOf(S.tm.store) >= 0 ? S.tm.store : D.stores[0] || ''; }
+// Names in the bulk box that would be added: new to the store (ignoring case), not repeated, not too long.
+function newTeams(names, teams) {
+  const seen = teams.map(t => t.toLowerCase());
+  return names.filter(n => { const l = n.toLowerCase(); if (n.length > TEAM_MAX || seen.indexOf(l) >= 0) return false; seen.push(l); return true; });
+}
+function teamView() {
+  const T = S.tm, D = T.data;
+  let h = '<main><div class="ph"><h1>Tim</h1><span>Tambahkan tim di tiap store. Karyawan memilih timnya sendiri di halaman Daftar makan, atau atur di sini.</span></div>';
+  if (!D) return h + skelView(6) + '</main>';
+  const st = tmStore();
+  if (!st) return h + '<div class="empty">Belum ada store di tab employee.</div></main>';
+  const teams = D.teams[st] || [], emps = D.emps.filter(e => e[3] === st), count = {};
+  emps.forEach(e => { count[e[4]] = (count[e[4]] || 0) + 1; });
+  const names = teamNames(T.text), add = newTeams(names, teams);
+  h += '<div class="rhead"><select class="input lg" style="width:240px" data-ch="tmStore" aria-label="Pilih store">' + D.stores.map(x => '<option' + (x === st ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>' +
+    '<span class="muted" style="font-size:14px">' + nf(teams.length) + ' tim · ' + nf(emps.length) + ' karyawan aktif · ' + nf(count[''] || 0) + ' belum punya tim</span></div>';
+  h += '<div class="vc-up"><div class="vc-h"><b>Tambah tim di ' + esc(st) + '</b></div>' +
+    '<span class="muted" style="font-size:13px">Satu nama tim per baris, atau pisahkan dengan koma. Nama bebas, maks. ' + TEAM_MAX + ' karakter; nama yang sudah ada dilewati.</span>' +
+    '<textarea class="input" rows="4" data-f="tmText" data-in="tmText" placeholder="Kasir&#10;Gudang pagi&#10;Gudang malam">' + esc(T.text) + '</textarea>' +
+    (names.length ? '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px"><span><b>' + nf(add.length) + '</b> tim baru</span>' + (names.length - add.length ? '<span class="warn"><b>' + nf(names.length - add.length) + '</b> sudah ada, berulang atau terlalu panjang, dilewati</span>' : '') + '</div>' : '') +
+    '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn lg" data-a="tmClear"' + (T.text ? '' : ' disabled') + '>Kosongkan</button>' +
+    '<button class="btn-primary" data-a="tmAdd"' + (!add.length || T.busy ? ' disabled' : '') + '>' + (T.busy ? 'Menyimpan…' : 'Simpan ' + nf(add.length) + ' tim') + '</button></div></div>';
+  const TL = 'minmax(0,1fr) 120px 70px';
+  h += '<div class="tbl"><div class="tbar"><div class="t"><b>Tim di ' + esc(st) + '</b><span>' + nf(teams.length) + ' tim · A–Z</span></div></div>' +
+    teams.map(t => '<div class="tr hov" style="grid-template-columns:' + TL + '"><span class="ell" style="font-weight:600">' + esc(t) + '</span><span class="r" style="color:#4a524d">' + nf(count[t] || 0) + ' orang</span>' +
+      '<button class="link muted" style="justify-self:end;font-size:12px" data-a="tmRemove" data-t="' + esc(t) + '">Hapus</button></div>').join('') +
+    (teams.length ? '' : '<div class="empty">Belum ada tim di store ini. Tambahkan di atas.</div>') + '</div>';
+  const q = T.q.trim().toLowerCase(), f = T.f === 'all' || T.f === '' || teams.indexOf(T.f) >= 0 ? T.f : 'all';
+  const list = emps.filter(e => (f === 'all' || e[4] === f) && (!q || (e[0] + ' ' + e[1] + ' ' + e[2]).toLowerCase().indexOf(q) >= 0)).sort((a, b) => a[1].localeCompare(b[1]));
+  h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Anggota tim</b><span>' + nf(list.length) + ' karyawan · perubahan langsung tersimpan</span></div>' +
+    '<select class="input" style="width:190px" data-ch="tmFilter" aria-label="Filter tim"><option value="all">Semua tim</option><option value=""' + (f === '' ? ' selected' : '') + '>Belum punya tim</option>' +
+    teams.map(t => '<option' + (f === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>' +
+    '<input class="input" style="width:230px" data-f="tmq" data-in="tmq" value="' + esc(T.q) + '" placeholder="Cari nama, NIK, departemen"></div>' +
+    '<div style="overflow-x:auto"><div style="min-width:720px"><div class="tr th" style="grid-template-columns:' + TM_COLS + '"><span>NIK</span><span>Nama</span><span>Departemen</span><span>Tim</span></div>' +
+    '<div class="tbody" data-keep="tmlist">' + list.map(e => '<div class="tr hov" style="grid-template-columns:' + TM_COLS + '"><span class="tnum ell" style="color:#4a524d" title="' + esc(e[0]) + '">' + esc(e[0]) + '</span>' +
+      '<span class="ell">' + esc(e[1]) + '</span><span class="ell" style="color:#4a524d">' + esc(e[2]) + '</span>' +
+      '<select class="input" data-ch="tmSet" data-n="' + esc(e[0]) + '" aria-label="Tim ' + esc(e[1]) + '"' + (teams.length ? '' : ' disabled') + '><option value="">Tanpa tim</option>' +
+      teams.map(t => '<option' + (e[4] === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></div>').join('') +
+    (list.length ? '' : '<div class="empty">' + (emps.length ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan aktif di store ini.') + '</div>') + '</div></div></div></div>';
+  return h + '</main>';
+}
+
 // ------------------------------------------------------------ data loading
 function load(key, action, payload, apply) {
   if (S.loading[key] || Date.now() - (S.loadErr[key] || 0) < 15000) return;
@@ -1351,6 +1436,7 @@ function ensureData() {
     }
   }
   if (S.view === 'voucher' && !fresh(S.vc.data, 30000)) load('vouchers', 'adminVouchers', {}, d => { S.vc.data = d; });
+  if (S.view === 'team' && !fresh(S.tm.data, 30000)) load('teams', 'adminTeams', {}, d => { S.tm.data = d; });
   if (S.view === 'closure') {
     if (!fresh(C.data, 30000)) load('closures', 'adminClosures', {}, d => { C.data = d; });
     const ks = closureRange(), key = ks.join(',') + '|' + C.meal;
@@ -1383,7 +1469,7 @@ function storeLines(agg) {
 }
 const collarName = c => c === 'blue' ? 'Blue collar' : 'White collar';
 const monthsSlug = yms => yms.length === 1 ? yms[0] : yms[0] + '_' + yms[yms.length - 1] + '_' + yms.length + 'bulan';
-const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi),Store asal';
+const DETAIL_H = 'Tanggal,NIK,Nama,Departemen,Store,Kategori,Makan siang (porsi),Makan malam (porsi),Store asal,Tim';
 
 
 // ------------------------------------------------------------ PDF export
@@ -1643,7 +1729,7 @@ const A = {
   exportMissing() {
     const w = S.hr.weekCache[S.hr.ws]; if (!w || !w.missing) return;
     const list = w.missing.filter(e => S.hr.rStore === 'all' || e.store === S.hr.rStore).sort((a, b) => byStoreName(a.store, b.store) || a.name.localeCompare(b.name));
-    download('belum-daftar-minggu-' + S.hr.ws + '.csv', ['NIK,Nama,Departemen,Store,Kategori'].concat(list.map(e => [csvq(e.nik), csvq(e.name), csvq(e.dept), csvq(e.store), collarName(e.collar)].join(','))), 'Daftar diekspor');
+    download('belum-daftar-minggu-' + S.hr.ws + '.csv', ['NIK,Nama,Departemen,Store,Tim,Kategori'].concat(list.map(e => [csvq(e.nik), csvq(e.name), csvq(e.dept), csvq(e.store), csvq(e.team || ''), collarName(e.collar)].join(','))), 'Daftar diekspor');
   },
   wkNav(el) { S.hr.ws = addDays(S.hr.ws, Number(el.dataset.n)); S.hr.wkOpen = false; render(); },
   wkToday() { S.hr.ws = thisWeek(nowJ()); S.hr.wkOpen = false; render(); },
@@ -1694,7 +1780,7 @@ const A = {
   },
   exportDetail() {
     const H = S.hr;
-    const detailLines = rows => [DETAIL_H].concat(rows.filter(r => H.rStore === 'all' || r[4] === H.rStore).map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7], csvq(r[8] || r[4])].join(',')));
+    const detailLines = rows => [DETAIL_H].concat(rows.filter(r => H.rStore === 'all' || r[4] === H.rStore).map(r => [r[0], csvq(r[1]), csvq(r[2]), csvq(r[3]), csvq(r[4]), collarName(r[5]), r[6], r[7], csvq(r[8] || r[4]), csvq(r[9] || '')].join(',')));
     if (H.mode === 'week') {
       const ws = H.ws;
       call('adminWeekDetail', { ws }).then(rows => download('detail-karyawan-minggu-' + ws + '.csv', detailLines(rows), 'Detail karyawan diekspor')).catch(fail);
@@ -1708,7 +1794,7 @@ const A = {
       return;
     }
     const d = curDay(); if (!d) return;
-    download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d, csvq(r.home || r.store)].join(','))), 'Detail karyawan diekspor');
+    download('detail-karyawan-' + d.date + '.csv', [DETAIL_H].concat(detailRows(d).map(r => [d.date, csvq(r.nik), csvq(r.name), csvq(r.dept), csvq(r.store), collarName(r.collar), r.l, r.d, csvq(r.home || r.store), csvq(r.team || '')].join(','))), 'Detail karyawan diekspor');
   },
   async exportPdf() {
     const H = S.hr;
@@ -1803,6 +1889,30 @@ const A = {
       [csvq(v.code), v.value, v.until, VC_STATE[v.state][0], csvq(v.usedBy), csvq(v.usedName), csvq(v.usedAt), v.discount || '', csvq(v.split)].join(','))), 'Voucher diekspor');
   },
 
+  // admin teams
+  tmClear() { S.tm.text = ''; render(); },
+  async tmAdd() {
+    const T = S.tm, st = tmStore(), names = teamNames(T.text);
+    if (!names.length || T.busy) return;
+    T.busy = true; render();
+    try {
+      const d = await call('addTeams', { store: st, names });
+      d._at = Date.now(); T.data = d; T.text = ''; T.busy = false; staleAdmin();
+      flash(nf(d.added) + ' tim ditambahkan di ' + st + (d.skipped.length ? ' · ' + nf(d.skipped.length) + ' dilewati' : ''));
+      if (st === S.user.store) refreshEmployee();
+    } catch (e) { T.busy = false; render(); fail(e); }
+  },
+  async tmRemove(el) {
+    const T = S.tm, st = tmStore(), t = el.dataset.t, n = T.data.emps.filter(e => e[3] === st && e[4] === t).length;
+    if (!window.confirm('Hapus tim ' + t + ' di ' + st + '?' + (n ? ' ' + n + ' anggotanya menjadi tanpa tim.' : ''))) return;
+    try {
+      const d = await call('removeTeam', { store: st, team: t });
+      d._at = Date.now(); T.data = d; if (T.f === t) T.f = 'all'; staleAdmin();
+      flash('Tim ' + t + ' dihapus');
+      if (st === S.user.store) refreshEmployee();
+    } catch (e) { fail(e); }
+  },
+
   // admin closures
   clMeal(el) { S.cl.meal = el.dataset.v; render(); },
   clReason(el) { S.cl.reason = S.cl.reason === el.dataset.v ? '' : el.dataset.v; render(); },
@@ -1839,6 +1949,8 @@ const IN = {
   vcode(v) { S.vcode = v; },
   storeQ(v) { S.storeQ = v; S.storeHi = 0; render(); },
   vcText(v) { S.vc.text = v; render(); },
+  tmText(v) { S.tm.text = v; render(); },
+  tmq(v) { S.tm.q = v; render(); },
   vcq(v) { S.vc.q = v; render(); }
 };
 const CH = {
@@ -1851,7 +1963,7 @@ const CH = {
     flash(monthName(ym) + ' diisi · ' + ds.length + ' hari');
   },
   rStore(v) { S.hr.rStore = v; render(); },
-  hrGroup(v, el) { S.hr.group = el.checked; render(); },
+  hrGroup(v) { S.hr.group = v; render(); },
   hrDate(v) { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { S.hr.date = v; render(); } },
   hrMeal(v) { S.hr.meal = v; render(); },
   hrStore(v) { S.hr.store = v; render(); },
@@ -1859,6 +1971,32 @@ const CH = {
   cutT(v, el) { S.hr.cut[el.dataset.k].time = v; },
   clSkip(v, el) { S.cl.skip = el.checked; render(); },
   vcStatus(v) { S.vc.status = v; render(); },
+  // Optimistic: shown at once, rolled back if the server refuses.
+  myTeam(v) {
+    const prev = S.user.team || '';
+    S.user.team = v; render();
+    call('setMyTeam', { team: v }).then(r => {
+      S.user.team = r.team; persistBoot();
+      flash(r.team ? 'Tim disimpan · ' + r.team : 'Tim dikosongkan');
+    }, e => {
+      S.user.team = prev; render();
+      if (isSession(e)) return fail(e);
+      flash('Tim belum tersimpan · ' + errMsg(e));
+    });
+  },
+  tmStore(v) { S.tm.store = v; S.tm.f = 'all'; render(); },
+  tmFilter(v) { S.tm.f = v; render(); },
+  tmSet(v, el) {
+    const T = S.tm, nik = el.dataset.n, e = T.data.emps.find(x => x[0] === nik);
+    if (!e) return;
+    const prev = e[4];
+    e[4] = v; render();
+    call('setTeams', { list: [{ nik, team: v }] }).then(d => {
+      d._at = Date.now(); T.data = d; staleAdmin();
+      if (nik === S.user.nik) { S.user.team = v; persistBoot(); }
+      flash(e[1] + (v ? ' masuk tim ' + v : ' sekarang tanpa tim'));
+    }, err => { e[4] = prev; render(); fail(err); });
+  },
   vcFile(v, el) {
     const f = el.files && el.files[0];
     if (!f) return;

@@ -17,16 +17,17 @@ const FAVICON_URL = 'https://raw.githubusercontent.com/k-rangga/segari-makmur/ma
 const FB_TAGS = ['Porsi kurang', 'Kurang hangat', 'Terlalu asin', 'Terlalu pedas', 'Kurang variasi', 'Antre lama', 'Menu favorit'];
 
 const SHEETS = {
-  employee: ['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Role', 'Aktif'],
+  employee: ['NIK', 'Nama', 'Departemen', 'Store', 'Kategori', 'Role', 'Aktif', 'Tim'],
   pendaftaran: ['Tanggal', 'NIK', 'Siang', 'Malam', 'Diperbarui', 'Store'],
   tutup: ['Grup', 'Tanggal', 'Waktu', 'Alasan', 'Dibuat oleh', 'Dibuat pada'],
   masukan: ['Tanggal', 'Waktu', 'NIK', 'Nilai', 'Tag', 'Catatan', 'Diperbarui'],
   menu: ['Tanggal', 'Siang', 'Malam'],
   pengaturan: ['Kunci', 'Nilai', 'Keterangan'],
-  voucher: ['Kode', 'Nilai', 'Berlaku sampai', 'Dipakai oleh', 'Dipakai pada', 'Potongan', 'Rincian', 'Diunggah pada', 'Diunggah oleh']
+  voucher: ['Kode', 'Nilai', 'Berlaku sampai', 'Dipakai oleh', 'Dipakai pada', 'Potongan', 'Rincian', 'Diunggah pada', 'Diunggah oleh'],
+  tim: ['Store', 'Tim', 'Dibuat oleh', 'Dibuat pada']
 };
 // Columns kept as plain text so dates and NIKs are never auto-converted.
-const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masukan: ['A', 'C'], menu: ['A'], pengaturan: ['B'], voucher: ['A', 'C', 'D', 'G'] };
+const TEXT_COLS = { employee: ['A'], pendaftaran: ['A', 'B'], tutup: ['B'], masukan: ['A', 'C'], menu: ['A'], pengaturan: ['B'], voucher: ['A', 'C', 'D', 'G'], tim: ['A', 'B'] };
 const DEFAULT_SETTINGS = [
   ['batas_hari', '3', 'White collar: pendaftaran minggu depan ditutup N hari sebelum Senin (5 = Rabu, 3 = Jumat, 1 = Minggu, 0 = Senin, -2 = Rabu minggu makan)'],
   ['batas_jam', '23:59', 'White collar: jam batas pendaftaran (HH:MM)'],
@@ -76,16 +77,21 @@ const ACTIONS = {
   adminImpact: (token, p) => { auth_(token, true); const ds = (p.dates || []).filter(isKey_); return impactOf_(ds.length ? regsMonths_(ds.map(k => k.slice(0, 7))) : [], ds, p.meal); },
   addClosure: (token, p) => addClosure_(auth_(token, true), p),
   removeClosure: (token, p) => { auth_(token, true); return removeClosure_(p.g); },
-  saveSettings: (token, p) => { auth_(token, true); return saveSettings_(p); }
+  saveSettings: (token, p) => { auth_(token, true); return saveSettings_(p); },
+  setMyTeam: (token, p) => { const me = auth_(token); return { team: setTeams_([{ nik: me.nik, team: p.team }])[me.nik] }; },
+  adminTeams: token => { auth_(token, true); return adminTeams_(); },
+  addTeams: (token, p) => addTeams_(auth_(token, true), p.store, p.names || []),
+  removeTeam: (token, p) => { auth_(token, true); return removeTeam_(p.store, p.team); },
+  setTeams: (token, p) => { auth_(token, true); setTeams_(p.list || []); return adminTeams_(); }
 };
 
 // ---------------------------------------------------------------- setup
 
 function ensureSetup_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('setup_v3')) return;           // bump when SHEETS gains a tab or column (v2: voucher, v3: pendaftaran.Store)
+  if (props.getProperty('setup_v4')) return;           // bump when SHEETS gains a tab or column (v2: voucher, v3: pendaftaran.Store, v4: tim + employee.Tim)
   setupSheets();
-  props.setProperty('setup_v3', '1');
+  props.setProperty('setup_v4', '1');
 }
 
 /** Creates missing tabs and headers (including columns added later, e.g. pendaftaran.Store). Safe to run again from the editor. */
@@ -194,14 +200,17 @@ function settings_() {
 
 /** `fresh` skips the cache (used when a NIK is not found, so new employees can log in at once). */
 function employees_(fresh) {
-  return cached_('emp1', () => readTable_('employee').rows.map(r => {
-    const dept = r.departemen || '', kat = r.kategori || '';
-    const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
-    return {
-      nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store: r.store || 'Tanpa store', collar,
-      admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak|no|false|0|n|nonaktif)$/i.test(r.aktif || '')
-    };
-  }).filter(e => e.nik && e.name), fresh);
+  return cached_('emp2', () => {
+    const tm = teams_();
+    return readTable_('employee').rows.map(r => {
+      const dept = r.departemen || '', kat = r.kategori || '', store = r.store || 'Tanpa store';
+      const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
+      return {
+        nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store, collar, team: teamIn_(tm, store, r.tim),
+        admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak|no|false|0|n|nonaktif)$/i.test(r.aktif || '')
+      };
+    }).filter(e => e.nik && e.name);
+  }, fresh);
 }
 
 function storesOf_(emps) {
@@ -209,9 +218,31 @@ function storesOf_(emps) {
   emps.forEach(e => { if (seen.indexOf(e.store) < 0) seen.push(e.store); });
   return seen;
 }
+const byName_ = (a, b) => a.localeCompare(b, 'id', { sensitivity: 'base', numeric: true });
+
+/** Teams per store from the `tim` tab: store -> team names A–Z (free text, unique per store ignoring case). */
+function teams_() {
+  return cached_('tim1', () => {
+    const out = {};
+    readTable_('tim').rows.forEach(r => {
+      const st = r.store, t = r.tim;
+      if (!st || !t) return;
+      const l = out[st] || (out[st] = []);
+      if (!l.some(x => x.toLowerCase() === t.toLowerCase())) l.push(t);
+    });
+    Object.keys(out).forEach(st => out[st].sort(byName_));
+    return out;
+  });
+}
+/** The store's own spelling of `team`, or '' when the store has no such team (removed, or the employee moved store). */
+function teamIn_(tm, store, team) {
+  const t = String(team || '').trim().toLowerCase();
+  return t ? (tm[store] || []).find(x => x.toLowerCase() === t) || '' : '';
+}
+
 /** Store locations an employee can pick when submitting (every store in `employee`, A–Z). */
 function storeChoices_() {
-  return storesOf_(employees_().filter(e => e.active)).filter(st => st !== 'Tanpa store').sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base', numeric: true }));
+  return storesOf_(employees_().filter(e => e.active)).filter(st => st !== 'Tanpa store').sort(byName_);
 }
 
 function mealOf_(v) {
@@ -458,8 +489,9 @@ function bootstrap_(me) {
     if (f.nik === me.nik && f.date >= fbFrom) fb[f.date + '-' + f.meal] = { r: f.r, tags: f.tags, note: f.note };
   });
   return {
-    user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, collar: me.collar, admin: me.admin },
+    user: { nik: me.nik, name: me.name, dept: me.dept, store: me.store, collar: me.collar, admin: me.admin, team: me.team },
     settings: s, now, price: PRICE, months: rg.months, fbTags: FB_TAGS, fbEditDays: FB_EDIT_DAYS, stores: storeChoices_(),
+    teams: teams_()[me.store] || [],
     reg: myRegs_(me, rg.from, rg.to),
     closures: closures_().filter(c => c.date >= rg.from),
     menus: menus_(addDays_(now.key, -14), rg.to),
@@ -711,9 +743,9 @@ function joinDay_(k, regs, closures, empMap) {
     if (r.date !== k) return;
     const l = lb ? 0 : r.l, d = db ? 0 : r.d;
     if (!l && !d) return;
-    const e = empMap[r.nik] || { nik: r.nik, name: '(NIK tidak dikenal)', dept: '', store: 'Tanpa store', collar: 'white' };
-    // store = where the portions are eaten (picked on submit); home = the employee's own store.
-    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: r.st || e.store, home: e.store, collar: e.collar, l, d });
+    const e = empMap[r.nik] || { nik: r.nik, name: '(NIK tidak dikenal)', dept: '', store: 'Tanpa store', collar: 'white', team: '' };
+    // store = where the portions are eaten (picked on submit); home = the employee's own store; team = their team there.
+    rows.push({ nik: r.nik, name: e.name, dept: e.dept, store: r.st || e.store, home: e.store, team: e.team || '', collar: e.collar, l, d });
   });
   return { rows, lb, db };
 }
@@ -748,10 +780,11 @@ function dayFeedback_(k) {
  * Per-day totals and the per-store split for `from`–`to` (used by the weekly and monthly recaps).
  * Each day also carries `s`: store -> [white siang, white malam, blue siang, blue malam, siang from other stores, malam from other stores],
  * so the client can filter by store and show portions eaten by employees from another store.
+ * `tm` = home store -> team ('' = no team) -> [siang, malam] for the whole range.
  */
 function rangeAgg_(from, to) {
   const emps = employees_(), em = empMap_(emps), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_();
-  const stores = storesOf_(emps), split = {};
+  const stores = storesOf_(emps), split = {}, tm = {};
   stores.forEach(st => { split[st] = [0, 0, 0, 0]; });
   const days = [];
   for (let k = from; k <= to; k = addDays_(k, 1)) {
@@ -765,16 +798,18 @@ function rangeAgg_(from, to) {
       split[r.store][o] += r.l; split[r.store][o + 1] += r.d;
       v[o] += r.l; v[o + 1] += r.d;
       if (r.store !== r.home) { v[4] += r.l; v[5] += r.d; }
+      const h = tm[r.home] || (tm[r.home] = {}), t = h[r.team] || (h[r.team] = [0, 0]);
+      t[0] += r.l; t[1] += r.d;
     });
     days.push({ date: k, l, d, pl, pd, n: j.rows.length, lb: j.lb, db: j.db, s });
   }
-  return { days, stores, split, now: now_() };
+  return { days, stores, split, tm, now: now_() };
 }
 
 function rangeDetail_(from, to) {
   const em = empMap_(employees_()), byDate = groupByDate_(regsMonths_(monthsBetween_(from, to))), closures = closures_(), out = [];
   for (let k = from; k <= to; k = addDays_(k, 1)) {
-    joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d, r.home]));
+    joinDay_(k, byDate[k] || [], closures, em).rows.forEach(r => out.push([k, r.nik, r.name, r.dept, r.store, r.collar, r.l, r.d, r.home, r.team]));
   }
   return out;
 }
@@ -807,7 +842,7 @@ function adminWeek_(ws, lite) {
   const active = employees_().filter(e => e.active), part = {};
   active.forEach(e => { const c = part[e.store] || (part[e.store] = [0, 0]); c[1]++; if (regd[e.nik]) c[0]++; });
   out.part = part;
-  out.missing = active.filter(e => !regd[e.nik]).map(e => ({ nik: e.nik, name: e.name, dept: e.dept, store: e.store, collar: e.collar }));
+  out.missing = active.filter(e => !regd[e.nik]).map(e => ({ nik: e.nik, name: e.name, dept: e.dept, store: e.store, team: e.team, collar: e.collar }));
   out.late = lateChanges_(ws, we);
   return out;
 }
@@ -950,4 +985,89 @@ function saveSettings_(p) {
     forget_(['set2'], ['pengaturan']);
   });
   return settings_();
+}
+
+// ---------------------------------------------------------------- teams
+
+const MAX_TEAM_LEN = 60;
+/** Every store an admin can give teams: stores of active employees plus stores that already have teams. */
+function teamStores_() {
+  const out = storeChoices_();
+  Object.keys(teams_()).forEach(st => { if (out.indexOf(st) < 0) out.push(st); });
+  return out.sort(byName_);
+}
+
+/** Teams per store and the active employees (with a store) who can join one: [nik, name, dept, store, team]. */
+function adminTeams_() {
+  return {
+    stores: teamStores_(), teams: teams_(),
+    emps: employees_().filter(e => e.active && e.store !== 'Tanpa store').map(e => [e.nik, e.name, e.dept, e.store, e.team])
+  };
+}
+
+/** Adds free-text teams to one store in bulk; names already there (ignoring case) or repeated are skipped. */
+function addTeams_(me, store, names) {
+  const st = String(store || '').trim();
+  if (teamStores_().indexOf(st) < 0) throw new Error('Pilih store yang tersedia.');
+  if (!Array.isArray(names) || names.length > 200) throw new Error('Maksimal 200 tim sekali simpan.');
+  const added = [], skipped = [];
+  withLock_(() => {
+    delete MEMO['t:tim']; forget_(['tim1']);
+    const have = (teams_()[st] || []).map(x => x.toLowerCase());
+    names.forEach(n => {
+      const t = String(n || '').trim().replace(/\s+/g, ' ');
+      if (!t) return;
+      if (t.length > MAX_TEAM_LEN || have.indexOf(t.toLowerCase()) >= 0) { skipped.push(t); return; }
+      have.push(t.toLowerCase()); added.push(t);
+    });
+    if (added.length) {
+      const sh = sheet_('tim'), ts = stamp_();
+      sh.getRange(sh.getLastRow() + 1, 1, added.length, 4).setValues(added.map(t => [st, t, me.name, ts]));
+    }
+    forget_(['tim1', 'emp2'], ['tim', 'employee']);
+  });
+  return Object.assign(adminTeams_(), { added: added.length, skipped });
+}
+
+/** Removes a team from a store; its members go back to no team. */
+function removeTeam_(store, team) {
+  const st = String(store || '').trim(), t = String(team || '').trim().toLowerCase();
+  withLock_(() => {
+    const tb = readTable_('tim');
+    tb.rows.filter(r => r.store === st && String(r.tim).toLowerCase() === t).map(r => r._row)
+      .sort((a, b) => b - a).forEach(r => tb.sheet.deleteRow(r));
+    const em = readTable_('employee'), col = teamCol_(em.sheet);
+    em.rows.filter(r => (r.store || 'Tanpa store') === st && String(r.tim || '').toLowerCase() === t).forEach(r => em.sheet.getRange(r._row, col).setValue(''));
+    forget_(['tim1', 'emp2'], ['tim', 'employee']);
+  });
+  return adminTeams_();
+}
+
+/** Sets each [{ nik, team }] ('' = no team); a team must belong to the employee's own store. Returns nik -> saved team. */
+function setTeams_(list) {
+  if (!Array.isArray(list) || list.length > 500) throw new Error('Data tim tidak valid.');
+  const tm = teams_(), emps = empMap_(employees_()), want = {};
+  list.forEach(x => {
+    const e = x && emps[String(x.nik || '').replace(/\s/g, '')];
+    if (!e) throw new Error('NIK tidak ditemukan.');
+    const t = teamIn_(tm, e.store, x.team);
+    if (String(x.team || '').trim() && !t) throw new Error('Tim "' + String(x.team).trim() + '" tidak ada di ' + e.store + '.');
+    want[e.nik] = t;
+  });
+  withLock_(() => {
+    const em = readTable_('employee'), col = teamCol_(em.sheet);
+    em.rows.forEach(r => {
+      const nik = String(r.nik).replace(/\s/g, '');
+      if (nik in want && String(r.tim || '') !== want[nik]) em.sheet.getRange(r._row, col).setValue(want[nik]);
+    });
+    forget_(['emp2'], ['employee']);
+  });
+  return want;
+}
+
+/** 1-based column of the employee tab's "Tim" header. */
+function teamCol_(sh) {
+  const i = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0].map(h => String(h).trim().toLowerCase()).indexOf('tim');
+  if (i < 0) throw new Error('Kolom Tim belum ada di tab employee.');
+  return i + 1;
 }
