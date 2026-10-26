@@ -531,7 +531,8 @@ Login hero 44/800/−0.03em (lh 1.05) · login brand 28/800 · page H1 28/700/�
 
 ### 8.5 Components
 - **Buttons** — primary: `#3B6D45`, white, 14–15/700, h44, pad 0 20, r10 (hover `#2B5234`; disabled `#E4E6E2`/`#8A948D`). Secondary: white, 1px `#DADDD8`, 14/600, h40 (44 in toolbars), pad 0 16. Accent: `#F39A1E`, text `#1E2A21`, 14/700, h44 (hover `#F7AE47`). Ghost on dark: transparent, 1px `#5F6B63`, white (hover `#2B3A2F`). Text link: 12–13/600 `#3B6D45` (muted `#5F6B63`). Tag chip: h36, pad 0 12, r999, 13/600; on = `#3B6D45` border, `#E3F1E5` bg, `#2B5234` text.
-- **Inputs/selects**: h40 (filters) or 44 (primary), pad 0 12 / 0 14, 14–15px, 1px `#DADDD8`, r10, focus/valid 1.5px `#3B6D45`, error 1.5px `#9A5A0C`. Checkbox 18×18 accent `#3B6D45`.
+- **Inputs**: h40 (filters) or 44 (primary), pad 0 12 / 0 14, 14–15px, 1px `#DADDD8`, r10, focus/valid 1.5px `#3B6D45`, error 1.5px `#9A5A0C`. Checkbox 18×18 accent `#3B6D45`.
+- **Dropdowns are always searchable** — never a native `<select>`. Single choice uses the searchable dropdown (8.9); multiple choice uses the multi-select (8.8), which also has a search field.
 - **Tabs**: underline row (gap 8, bottom border `#E4E6E2`); tab pad 12 20 (month tabs 10 20), active 2px `#3B6D45` underline, 15/700 `#1E2A21`; inactive 15/500 `#5F6B63`; month sub-label 12px.
 - **Stat card**: 1px `#E4E6E2`, r12, pad 18 20, gap 4; label 14 `#3F4A43` (8×8 meal swatch before lunch/dinner labels), value 24/700 (dinner value `#8A4F00`), sub 13 `#5F6B63`. Grid `repeat(auto-fit, minmax(200px,1fr))` gap 16.
 - **Data table**: 1px border r12; toolbar pad 14 20; header pad 14 20 (16 20 in month/feedback tables); rows pad 14 20, 15px, gap 16, divider `#EEF0EC`, hover `#F8F9F7`; total row pad 16 20 bg `#F8F9F7` 700; numbers right-aligned tabular; empty pad 40 20 centered 14 `#5F6B63`.
@@ -557,13 +558,19 @@ Day cell: min-h 116, pad 8 6, gap 6, borders `#EEF0EC`; past/out-of-month bg `#F
 - Status pills: Buka `#E3F1E5`/`#2B5234`; Tutup `#FDEBD8`/`#9A5A0C`; Libur `#F0F1EE`/`#5F6B63`; Terkirim `#E3F1E5`/`#2B5234`; Draf `#FBE7C6`/`#9A5A0C`; Terkunci `#F0F1EE`/`#3F4A43`. Meal pills: Siang `#E3F1E5`/`#2B5234`, Malam `#FDEBD0`/`#8A4F00`.
 - Legend meal chips: h24, pad 0 8, r999, tint bg + text color, 10×10 swatch r3.
 
-### 8.8 Multi-select dropdown (month picker + 3 feedback filters only)
+### 8.8 Multi-select dropdown (month picker + 3 feedback filters)
 - Trigger: looks like a select — h44, r10, 1px `#DADDD8`, white, `#1E2A21`, 15px, chevron right (rotates when open). Widths: month 200, Waktu makan 200, Penilaian 220, Catatan 200.
 - Label: none selected → placeholder ("Semua bulan", "Semua waktu makan", "Semua penilaian", "Semua catatan"); one → its name; two+ → "{Bulan|Waktu makan|Penilaian|Catatan} ·" + badge "{n} dipilih" (12/700, pad 2 7, r999, `#E3F1E5`/`#2B5234`; badge never truncated, the noun may ellipsize).
-- Panel: white, r12, 1px `#E4E6E2`, popover shadow, max-height 280 scroll, min-width = trigger, max 320px. Pinned header row: "Pilih semua" (green link) / "Kosongkan" (muted link). Option rows min-h 40, pad 8 10, r8, hover `#F4F5F2`, checkbox 18×18 r5 (checked `#3B6D45` fill + white check; unchecked 1px `#DADDD8`). Options keep their list order.
+- Panel: white, r12, 1px `#E4E6E2`, popover shadow, max-height 280 scroll, min-width = trigger, max 320px. Pinned header row: "Pilih semua" (green link) / "Kosongkan" (muted link), then a "Cari" search field (h40) filtering the options by label ("Tidak ditemukan" when none match; cleared each time the panel opens). Option rows min-h 40, pad 8 10, r8, hover `#F4F5F2`, checkbox 18×18 r5 (checked `#3B6D45` fill + white check; unchecked 1px `#DADDD8`). Options keep their list order.
 - Behaviour: empty selection = "Semua"; ticking an item replaces "Semua"; clearing returns to it. Outside click or Esc closes. ARIA: `aria-haspopup="listbox"`, `aria-expanded`, `role="listbox"` `aria-multiselectable`, `role="option"` `aria-selected`.
 
-### 8.9 Responsive
+### 8.9 Searchable dropdown (every single-choice dropdown)
+- Used for: Isi cepat, Tim kamu, cutoff day (grouped "Minggu sebelumnya" / "Minggu makan"), Kelompokkan, waktu makan, store filters, voucher status, Tim page store / filter / per-employee team. The submit bar's store picker is the dark variant of the same pattern.
+- Trigger: looks like an input — h40 (h44 `lg`), pad 0 12 (0 14), r8, 1px `#DADDD8`, white, 14px (15 `lg`), label ellipsized, chevron right (rotates when open). Placeholder colour `#5D6560` when nothing is chosen; orange border `#F7971F` when a choice is expected but empty (e.g. Tim kamu); disabled bg `#F6F7F5`, text `#9AA39D`.
+- Panel: `position: fixed` under the trigger (above it only when the list doesn't fit below), width = trigger (min 240, max viewport − 16), white, r12, 1px `#E3E6E1`, popover shadow, pad 8, gap 6. A "Cari" search field (h40) gets focus on open; list max-height 260 scrolls; group headings 12/700 uppercase `#5D6560`; option rows min-h 40, pad 8 10, r8, hover/keyboard highlight `#F0F2EE`, chosen option 700 green with a ✓; "Tidak ditemukan" when nothing matches. Search matches the label and group.
+- Behaviour: ↑/↓ move the highlight, Enter picks, Esc / outside click / scrolling outside / resize close. Picking closes the panel and applies at once (same as the former select change). ARIA: trigger `aria-haspopup="listbox"` + `aria-expanded`; list `role="listbox"`, rows `role="option"` + `aria-selected`.
+
+### 8.10 Responsive
 - ≤ 760px: main padding `24px 16px 72px`; sidebar forced collapsed; summary card full width, not sticky; comment rows stack; print sheet padding 24; login panels stack.
 - No horizontal page scroll at 375px; wide tables and the calendar scroll inside their own containers.
 

@@ -86,7 +86,7 @@ const S = {
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
   vc: { data: null, text: '', fileName: '', q: '', status: 'all', busy: false },
   tm: { data: null, store: '', text: '', q: '', f: 'all', busy: false },
-  dp: null, ms: null, loading: {}, loadErr: {}, toast: null
+  dp: null, ms: null, msQ: '', dd: null, loading: {}, loadErr: {}, toast: null
 };
 
 // ------------------------------------------------------------ server
@@ -160,7 +160,7 @@ function pendingChanges(now) {
 }
 
 // ------------------------------------------------------------ rendering
-let root, renderQueued = false;
+let root, renderQueued = false, renderedAt = 0;
 function render() {
   if (renderQueued) return;
   renderQueued = true;
@@ -176,6 +176,7 @@ function renderNow() {
   root.querySelectorAll('[data-keep]').forEach(el => { keep[el.dataset.keep] = [el.scrollTop, el.scrollLeft]; });
   root.innerHTML = view();
   root.querySelectorAll('[data-keep]').forEach(el => { const v = keep[el.dataset.keep]; if (v) { el.scrollTop = v[0]; el.scrollLeft = v[1]; } });
+  renderedAt = Date.now();          // restoring those scroll positions fires scroll events that must not close the dropdown
   if (f) {
     const el = root.querySelector('[data-f="' + f + '"]');
     if (el) { el.focus(); try { if (s0 != null) el.setSelectionRange(s0, s1); } catch (e) { /* no selection API */ } }
@@ -183,6 +184,7 @@ function renderNow() {
   if (S.dp) dpPaint();
   if (S.hr.wkScroll) { S.hr.wkScroll = false; const o = root.querySelector('.wk-opt.on') || root.querySelector('.wk-opt.cur'); if (o) o.scrollIntoView({ block: 'center' }); }
   if (S.storeFocus) { S.storeFocus = false; const q = root.querySelector('[data-f="storeQ"]'); if (q) q.focus(); }
+  if (S.dd && S.dd.focus) { S.dd.focus = false; const q = root.querySelector('[data-f="ddQ"]'), o = root.querySelector('.dd-pop .sbox-opt.hi'); if (q) q.focus(); if (o) o.scrollIntoView({ block: 'nearest' }); }
   ensureData();
 }
 
@@ -352,8 +354,8 @@ function empView() {
 function teamPick() {
   const cur = S.user.team || '';
   if (!S.teams.length) return '';
-  return '<label class="team-pick"><b>Tim kamu di ' + esc(S.user.store) + '</b><select class="input' + (cur ? '' : ' empty') + '" data-ch="myTeam" aria-label="Pilih tim">' +
-    '<option value="">' + (cur ? 'Tanpa tim' : 'Pilih tim') + '</option>' + S.teams.map(t => '<option' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>';
+  return '<div class="team-pick"><b>Tim kamu di ' + esc(S.user.store) + '</b>' +
+    dd('myTeam', cur, (cur ? [['', 'Tanpa tim']] : []).concat(S.teams.map(t => [t, t])), { ch: 'myTeam', w: 220, ph: 'Pilih tim', aria: 'Pilih tim', warn: true }) + '</div>';
 }
 
 function thisWeekView(now) {
@@ -423,8 +425,7 @@ function lockBarView(now) {
 
 function calToolbar() {
   const opts = [['wk-lunch', 'Hari kerja · Makan siang'], ['wk-both', 'Hari kerja · Siang + malam'], ['wk-dinner', 'Hari kerja · Makan malam'], ['all-lunch', 'Setiap hari · Makan siang'], ['all-both', 'Setiap hari · Siang + malam'], ['clear', 'Kosongkan bulan ini']];
-  return '<div class="toolbar"><select class="input" style="min-width:240px" data-ch="quick"><option value="">Isi cepat…</option>' +
-    opts.map(o => '<option value="' + o[0] + '">' + o[1] + '</option>').join('') + '</select>' +
+  return '<div class="toolbar">' + dd('quick', '', opts, { ch: 'quick', w: 240, ph: 'Isi cepat…', aria: 'Isi cepat' }) +
     '<button class="btn" style="font-weight:500;padding:0 14px" data-a="toggleWknd">' + (S.hideWknd ? 'Tampilkan Sab–Min' : 'Sembunyikan Sab–Min') + '</button><div class="spacer"></div>' +
     '<div class="legend"><span><i class="sw" style="background:#1f5f4a"></i>Terdaftar</span><span><i class="sw" style="border:2px dashed #1f5f4a;background:#eef5f1"></i>Belum terdaftar</span><span><i class="sw" style="border:1px solid #d5d9d4;background:#fafbf9"></i>Belum dipilih</span>' +
     ['lunch', 'dinner'].map(m => '<span style="height:24px;padding:0 8px;border-radius:999px;background:' + MC[m].t + ';color:' + MC[m].x + ';font-weight:600"><i class="sw" style="width:10px;height:10px;border-radius:3px;background:' + MC[m].a + '"></i>' + (m === 'lunch' ? 'Siang' : 'Malam') + '</span>').join('') + '</div></div>';
@@ -695,9 +696,8 @@ function cutInfo(k, now) {
 }
 function cutEditView(H) {
   const row = col => '<div class="cut-row"><span class="cut-col">' + collarName(col) + '</span>' +
-    '<label class="field"><span class="lbl">Pendaftaran ditutup setiap</span><select class="input" style="width:260px" data-ch="cutD" data-k="' + col + '">' +
-    [['Minggu sebelumnya', CUT_DAYS.filter(n => n > 0)], ['Minggu makan', CUT_DAYS.filter(n => n <= 0)]].map(g => '<optgroup label="' + g[0] + '">' +
-      g[1].map(n => '<option value="' + n + '"' + (H.cut[col].days === n ? ' selected' : '') + '>' + cutDay(n) + ' ' + cutWeek(n) + '</option>').join('') + '</optgroup>').join('') + '</select></label>' +
+    '<div class="field"><span class="lbl">Pendaftaran ditutup setiap</span>' +
+    dd('cutD:' + col, String(H.cut[col].days), CUT_DAYS.map(n => [String(n), cutDay(n) + ' ' + cutWeek(n), n > 0 ? 'Minggu sebelumnya' : 'Minggu makan']), { ch: 'cutD', w: 260, data: { k: col }, aria: 'Hari batas ' + collarName(col) }) + '</div>' +
     '<label class="field"><span class="lbl">Pukul</span><input type="time" class="input" style="width:140px" data-ch="cutT" data-k="' + col + '" value="' + H.cut[col].time + '"></label></div>';
   return '<div class="cut-edit">' + COLLARS.map(row).join('') +
     '<div style="display:flex;gap:8px"><button class="btn-primary sm" data-a="cutSave">Simpan</button><button class="btn" data-a="cutCancel">Batal</button></div>' +
@@ -746,9 +746,9 @@ function dayView() {
   const rows = detailRows(day), ex = rows.reduce((a, r) => a + extraOf(r), 0);
   const sortCols = [['nik', 'NIK', 0], ['name', 'Nama', 0], ['dept', 'Departemen', 0], ['store', 'Store', 0], ['team', 'Tim', 0], ['l', 'Siang', 1], ['d', 'Malam', 1]];
   h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Detail karyawan</b><span>' + rows.length + ' karyawan' + (ex ? ' · ' + ex + ' porsi tambahan (tamu / dibawa pulang)' : '') + '</span></div>' +
-    '<select class="input" style="width:170px" data-ch="hrGroup" aria-label="Kelompokkan">' + [['store', 'Per store'], ['team', 'Per tim'], ['', 'Tanpa kelompok']].map(o => '<option value="' + o[0] + '"' + (H.group === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
-    '<select class="input" style="width:170px" data-ch="hrMeal">' + [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']].map(o => '<option value="' + o[0] + '"' + (H.meal === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
-    '<select class="input" style="width:170px" data-ch="hrStore"><option value="all">Semua store</option>' + day.stores.map(st => '<option' + (H.store === st ? ' selected' : '') + '>' + esc(st) + '</option>').join('') + '</select>' +
+    dd('hrGroup', H.group, [['store', 'Per store'], ['team', 'Per tim'], ['', 'Tanpa kelompok']], { ch: 'hrGroup', w: 170, aria: 'Kelompokkan' }) +
+    dd('hrMeal', H.meal, [['all', 'Semua waktu makan'], ['lunch', 'Makan siang'], ['dinner', 'Makan malam']], { ch: 'hrMeal', w: 190, aria: 'Waktu makan' }) +
+    dd('hrStore', H.store, [['all', 'Semua store']].concat(day.stores.slice().sort(byStoreName).map(st => [st, st])), { ch: 'hrStore', w: 170, aria: 'Filter store' }) +
     '<input class="input" style="width:230px" data-f="q" data-in="q" value="' + esc(H.q) + '" placeholder="Cari nama, NIK, departemen, tim">' +
     '<button class="btn" data-a="exportDetail">Ekspor detail karyawan</button></div>' +
     '<div style="overflow-x:auto"><div style="min-width:940px"><div class="tr th" style="grid-template-columns:' + DETAIL_COLS + '">' +
@@ -880,8 +880,7 @@ const lateTxt = t => [t[0] ? '+' + nf(t[0]) : '', t[1] ? '−' + nf(t[1]) : ''].
 const sumDays = days => days.reduce((a, x) => [a[0] + x.l, a[1] + x.d], [0, 0]);
 function rangeStoreSelect(all) {
   const st = S.hr.rStore;
-  return '<select class="input lg" style="width:190px" data-ch="rStore" aria-label="Filter store"><option value="all">Semua store</option>' +
-    all.slice().sort(byStoreName).map(x => '<option' + (x === st ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>';
+  return dd('rStore', st, [['all', 'Semua store']].concat(all.slice().sort(byStoreName).map(x => [x, x])), { ch: 'rStore', w: 190, lg: true, aria: 'Filter store' });
 }
 
 // Stats, store split and per-day table for a set of days (weekly and monthly recaps). `long` shows the month in each date;
@@ -1047,6 +1046,51 @@ function weekView() {
   return h + cutCardView(cutInfo(ck, now)) + rangeView(w, now, true, prevW, 'minggu lalu', true, R => weekMatrixView(w, R, now), weekTrendView(w, now)) + missingView(w, now);
 }
 
+// ------------------------------------------------------------ searchable dropdown (every single-choice dropdown)
+// dd(id, value, opts, c): opts = [[value, label, group?]] (a new group value starts a labelled section);
+// c = { ch: CH handler called with (value, { dataset: c.data }) on pick, w (px; default 100%), lg, ph (shown when nothing
+// matches `value`), aria, data, disabled, warn (orange border while empty) }. `id` must be unique on the page.
+// The panel is position:fixed (placed on open) so tables with overflow never clip it; scrolling outside closes it.
+const DD = {};
+function dd(id, value, opts, c) {
+  DD[id] = { opts, c: Object.assign({ value }, c) };
+  const open = !!S.dd && S.dd.id === id, cur = opts.find(o => o[0] === value);
+  let h = '<div class="dd' + (c.lg ? ' lg' : '') + '" data-dd-root style="width:' + (c.w ? c.w + 'px' : '100%') + '">' +
+    '<button type="button" class="dd-btn' + (cur ? '' : ' ph') + (c.warn && !value ? ' warn' : '') + '" data-a="ddToggle" data-id="' + esc(id) + '" aria-haspopup="listbox" aria-expanded="' + open + '"' +
+    (c.aria ? ' aria-label="' + esc(c.aria) + '"' : '') + (c.disabled ? ' disabled' : '') + '><span class="ell">' + esc(cur ? cur[1] : c.ph || 'Pilih') + '</span>' + ICON.chev(16) + '</button>';
+  if (!open) return h + '</div>';
+  const P = S.dd, list = ddMatches(opts), hi = Math.max(0, Math.min(P.hi, list.length - 1));
+  let grp = null;
+  h += '<div class="dd-pop" role="dialog" aria-label="' + esc(c.aria || 'Pilih') + '" style="left:' + P.pos.left + 'px;' + (P.pos.up ? 'bottom:' + P.pos.bottom : 'top:' + P.pos.top) + 'px;width:' + P.pos.width + 'px">' +
+    '<input class="input" data-f="ddQ" data-in="ddQ" value="' + esc(P.q) + '" placeholder="Cari" autocomplete="off" spellcheck="false" aria-label="Cari pilihan">' +
+    '<div class="dd-list" role="listbox" data-keep="dd-list">' + list.map((o, i) => {
+      const g = o[2] && o[2] !== grp ? '<span class="dd-grp">' + esc(o[2]) + '</span>' : '';
+      grp = o[2] || grp;
+      const on = o[0] === value;
+      return g + '<button type="button" role="option" aria-selected="' + on + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (on ? ' on' : '') + '" data-a="ddPick" data-v="' + esc(o[0]) + '"><span class="ell">' + esc(o[1]) + '</span>' + (on ? '<span aria-hidden="true">✓</span>' : '') + '</button>';
+    }).join('') + (list.length ? '' : '<span class="sbox-empty">Tidak ditemukan</span>') + '</div></div>';
+  return h + '</div>';
+}
+function ddMatches(opts) {
+  const q = S.dd.q.trim().toLowerCase();
+  return opts.filter(o => !q || (o[1] + ' ' + (o[2] || '')).toLowerCase().indexOf(q) >= 0);
+}
+function ddOpen(el) {
+  const id = el.dataset.id, d = DD[id];
+  if (!d) return;
+  const r = el.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight, width = Math.min(Math.max(r.width, 240), vw - 16);
+  const need = Math.min(d.opts.length * 40, 260) + 64, up = vh - r.bottom < need && r.top > vh - r.bottom;   // upwards only when the list doesn't fit below
+  S.dd = { id, q: '', hi: Math.max(0, d.opts.findIndex(o => o[0] === d.c.value)), focus: true,
+    pos: { left: Math.round(Math.max(8, Math.min(r.left, vw - width - 8))), top: Math.round(r.bottom + 6), bottom: Math.round(vh - r.top + 6), up, width: Math.round(width) } };
+  S.ms = null; S.dp = null; S.hr.wkOpen = false; S.hr.dl = false; closeStore();
+}
+function ddPick(v) {
+  const d = DD[S.dd.id];
+  S.dd = null;
+  if (d && CH[d.c.ch]) CH[d.c.ch](v, { dataset: d.c.data || {} });
+  render();
+}
+
 // ------------------------------------------------------------ multi-select dropdown (month picker + feedback filters)
 // Empty selection means "Semua". Each entry: label (noun), all (placeholder), w (px), opts() -> [[value, label]], get/set.
 const MS = {
@@ -1058,6 +1102,7 @@ const MS = {
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
 function msView(key) {
   const c = MS[key], opts = c.opts(), sel = c.get().filter(v => opts.some(o => o[0] === v)), open = S.ms === key;
+  const q = open ? S.msQ.trim().toLowerCase() : '', shown = opts.filter(o => !q || o[1].toLowerCase().indexOf(q) >= 0);
   const one = sel.length === 1 ? opts.find(o => o[0] === sel[0])[1] : '';
   const label = !sel.length ? esc(c.all) : one ? esc(one) : esc(c.label) + ' ·';
   const badge = sel.length > 1 ? '<span style="flex:none;font-size:12px;font-weight:700;padding:2px 7px;border-radius:999px;background:#e4f3ea;color:#194e3d">' + sel.length + ' dipilih</span>' : '';
@@ -1070,7 +1115,9 @@ function msView(key) {
       '<div style="position:sticky;top:0;z-index:1;background:#FFFFFF;display:flex;justify-content:space-between;gap:16px;padding:10px 10px 8px;margin:0 -4px 4px;border-bottom:1px solid #EEF0EC">' +
       '<button type="button" data-a="msAll" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#1f5f4a;font-size:13px;font-weight:600">Pilih semua</button>' +
       '<button type="button" data-a="msNone" data-k="' + key + '" style="padding:0;border:0;background:transparent;color:#5d6560;font-size:13px;font-weight:600">Kosongkan</button></div>' +
-      opts.map(o => {
+      '<input class="input ms-q" data-f="msQ" data-in="msQ" value="' + esc(S.msQ) + '" placeholder="Cari" autocomplete="off" spellcheck="false" aria-label="Cari pilihan">' +
+      (shown.length ? '' : '<span class="sbox-empty">Tidak ditemukan</span>') +
+      shown.map(o => {
         const on = sel.indexOf(o[0]) >= 0;
         return '<button type="button" role="option" aria-selected="' + on + '" class="ms-row" data-a="msPick" data-k="' + key + '" data-v="' + esc(o[0]) + '" style="display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#1d211f;font-size:14px;text-align:left">' +
           '<span style="flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;' + (on ? 'background:#1f5f4a' : 'border:1px solid #d5d9d4;background:#FFFFFF') + '">' + (on ? CHECK : '') + '</span>' + esc(o[1]) + '</button>';
@@ -1330,7 +1377,7 @@ function voucherView() {
   const list = L.filter(v => (V.status === 'all' || v.state === V.status) && (!q || (v.code + ' ' + v.usedName + ' ' + v.usedBy).toUpperCase().indexOf(q) >= 0))
     .sort((a, b) => String(b.usedAt || b.uploadedAt).localeCompare(String(a.usedAt || a.uploadedAt)) || a.code.localeCompare(b.code));
   h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Daftar voucher</b><span>' + nf(list.length) + ' voucher</span></div>' +
-    '<select class="input" style="width:170px" data-ch="vcStatus">' + [['all', 'Semua status'], ['available', 'Tersedia'], ['used', 'Terpakai'], ['expired', 'Kedaluwarsa']].map(o => '<option value="' + o[0] + '"' + (V.status === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+    dd('vcStatus', V.status, [['all', 'Semua status'], ['available', 'Tersedia'], ['used', 'Terpakai'], ['expired', 'Kedaluwarsa']], { ch: 'vcStatus', w: 170, aria: 'Status voucher' }) +
     '<input class="input" style="width:220px" data-f="vcq" data-in="vcq" value="' + esc(V.q) + '" placeholder="Cari kode atau nama">' +
     '<button class="btn" data-a="vcExport">Ekspor voucher</button></div>' +
     '<div style="overflow-x:auto"><div style="min-width:920px"><div class="tr th" style="grid-template-columns:' + VC_COLS + '"><span>Kode</span><span class="r">Nilai</span><span>Berlaku sampai</span><span>Status</span><span>Dipakai oleh</span><span>Dipakai pada</span><span class="r">Potongan</span><span></span></div>' +
@@ -1366,7 +1413,7 @@ function teamView() {
   const teams = D.teams[st] || [], emps = D.emps.filter(e => e[3] === st), count = {};
   emps.forEach(e => { count[e[4]] = (count[e[4]] || 0) + 1; });
   const names = teamNames(T.text), add = newTeams(names, teams);
-  h += '<div class="rhead"><select class="input lg" style="width:240px" data-ch="tmStore" aria-label="Pilih store">' + D.stores.map(x => '<option' + (x === st ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>' +
+  h += '<div class="rhead">' + dd('tmStore', st, D.stores.map(x => [x, x]), { ch: 'tmStore', w: 240, lg: true, aria: 'Pilih store' }) +
     '<span class="muted" style="font-size:14px">' + nf(teams.length) + ' tim · ' + nf(emps.length) + ' karyawan aktif · ' + nf(count[''] || 0) + ' belum punya tim</span></div>';
   h += '<div class="vc-up"><div class="vc-h"><b>Tambah tim di ' + esc(st) + '</b></div>' +
     '<span class="muted" style="font-size:13px">Satu nama tim per baris, atau pisahkan dengan koma. Nama bebas, maks. ' + TEAM_MAX + ' karakter; nama yang sudah ada dilewati.</span>' +
@@ -1382,14 +1429,12 @@ function teamView() {
   const q = T.q.trim().toLowerCase(), f = T.f === 'all' || T.f === '' || teams.indexOf(T.f) >= 0 ? T.f : 'all';
   const list = emps.filter(e => (f === 'all' || e[4] === f) && (!q || (e[0] + ' ' + e[1] + ' ' + e[2]).toLowerCase().indexOf(q) >= 0)).sort((a, b) => a[1].localeCompare(b[1]));
   h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Anggota tim</b><span>' + nf(list.length) + ' karyawan · perubahan langsung tersimpan</span></div>' +
-    '<select class="input" style="width:190px" data-ch="tmFilter" aria-label="Filter tim"><option value="all">Semua tim</option><option value=""' + (f === '' ? ' selected' : '') + '>Belum punya tim</option>' +
-    teams.map(t => '<option' + (f === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>' +
+    dd('tmFilter', f, [['all', 'Semua tim'], ['', 'Belum punya tim']].concat(teams.map(t => [t, t])), { ch: 'tmFilter', w: 190, aria: 'Filter tim' }) +
     '<input class="input" style="width:230px" data-f="tmq" data-in="tmq" value="' + esc(T.q) + '" placeholder="Cari nama, NIK, departemen"></div>' +
     '<div style="overflow-x:auto"><div style="min-width:720px"><div class="tr th" style="grid-template-columns:' + TM_COLS + '"><span>NIK</span><span>Nama</span><span>Departemen</span><span>Tim</span></div>' +
     '<div class="tbody" data-keep="tmlist">' + list.map(e => '<div class="tr hov" style="grid-template-columns:' + TM_COLS + '"><span class="tnum ell" style="color:#4a524d" title="' + esc(e[0]) + '">' + esc(e[0]) + '</span>' +
       '<span class="ell">' + esc(e[1]) + '</span><span class="ell" style="color:#4a524d">' + esc(e[2]) + '</span>' +
-      '<select class="input" data-ch="tmSet" data-n="' + esc(e[0]) + '" aria-label="Tim ' + esc(e[1]) + '"' + (teams.length ? '' : ' disabled') + '><option value="">Tanpa tim</option>' +
-      teams.map(t => '<option' + (e[4] === t ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></div>').join('') +
+      dd('tmSet:' + e[0], e[4], [['', 'Tanpa tim']].concat(teams.map(t => [t, t])), { ch: 'tmSet', data: { n: e[0] }, aria: 'Tim ' + e[1], disabled: !teams.length }) + '</div>').join('') +
     (list.length ? '' : '<div class="empty">' + (emps.length ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan aktif di store ini.') + '</div>') + '</div></div></div></div>';
   return h + '</main>';
 }
@@ -1689,6 +1734,8 @@ const A = {
     }));
     render();
   },
+  ddToggle(el) { if (S.dd && S.dd.id === el.dataset.id) S.dd = null; else ddOpen(el); render(); },
+  ddPick(el) { ddPick(el.dataset.v); },
   storeToggle() { if (S.storeOpen) closeStore(); else { S.storeOpen = true; S.storeFocus = true; S.storeHi = Math.max(0, S.stores.indexOf(S.store)); } render(); },
   storePick(el) { pickStore(el.dataset.v); },
   closePop() { S.pop = null; render(); },
@@ -1825,7 +1872,7 @@ const A = {
     download('masukan-makan-tanpa-nama-' + S.hr.fb.from + '_' + S.hr.fb.to + '.csv', lines, 'CSV diekspor tanpa nama');
   },
   fbSel(el) { S.hr.fbSel = el.dataset.k; render(); },
-  msToggle(el) { S.ms = S.ms === el.dataset.k ? null : el.dataset.k; render(); },
+  msToggle(el) { S.ms = S.ms === el.dataset.k ? null : el.dataset.k; S.msQ = ''; S.dd = null; render(); },
   msPick(el) {
     const c = MS[el.dataset.k], v = el.dataset.v, cur = c.get();
     const next = cur.indexOf(v) >= 0 ? cur.filter(x => x !== v) : cur.concat(v);
@@ -1948,6 +1995,8 @@ const IN = {
   clReason(v) { S.cl.reason = v; render(); },
   vcode(v) { S.vcode = v; },
   storeQ(v) { S.storeQ = v; S.storeHi = 0; render(); },
+  ddQ(v) { if (S.dd) { S.dd.q = v; S.dd.hi = 0; render(); } },
+  msQ(v) { S.msQ = v; render(); },
   vcText(v) { S.vc.text = v; render(); },
   tmText(v) { S.tm.text = v; render(); },
   tmq(v) { S.tm.q = v; render(); },
@@ -2022,6 +2071,7 @@ function init() {
   root.addEventListener('click', e => {
     if (S.ms && !e.target.closest('[data-ms-root]')) { S.ms = null; render(); }
     if (S.storeOpen && !e.target.closest('[data-store-root]')) { closeStore(); render(); }
+    if (S.dd && !e.target.closest('[data-dd-root]')) { S.dd = null; render(); }
     if (S.hr.wkOpen && !e.target.closest('[data-wk-root]')) { S.hr.wkOpen = false; render(); }
     if (S.hr.dl && (!e.target.closest('[data-dl-root]') || e.target.closest('.dl-opt'))) { S.hr.dl = false; render(); }
     const c = chipOf(e.target);
@@ -2052,6 +2102,7 @@ function init() {
   window.addEventListener('scroll', e => {
     if (S.pop) { S.pop = null; render(); }
     if (S.dp && !(e.target && e.target.closest && e.target.closest('.dp-pop'))) { S.dp = null; render(); }
+    if (S.dd && Date.now() - renderedAt > 150 && !(e.target && e.target.closest && e.target.closest('.dd-pop'))) { S.dd = null; render(); }
   }, true);
   root.addEventListener('mouseover', e => {               // range preview while picking the end date (no re-render)
     if (!S.dp || !S.dp.pending) return;
@@ -2059,7 +2110,7 @@ function init() {
     const h = d && !d.disabled ? d.dataset.dpd : null;
     if (h !== S.dp.hover) { S.dp.hover = h; dpPaint(); }
   });
-  window.addEventListener('resize', () => { if (S.pop) S.pop = null; if (S.user) render(); });
+  window.addEventListener('resize', () => { if (S.pop) S.pop = null; S.dd = null; if (S.user) render(); });
   window.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
     if (S.storeOpen && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
@@ -2073,7 +2124,19 @@ function init() {
       }
       if (e.key === 'Enter') { e.preventDefault(); const st = list[Math.min(S.storeHi, list.length - 1)]; if (st) pickStore(st); return; }
     }
+    if (S.dd && e.target && e.target.dataset && e.target.dataset.in === 'ddQ') {
+      const list = ddMatches(DD[S.dd.id].opts);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        S.dd.hi = Math.max(0, Math.min(list.length - 1, Math.min(S.dd.hi, list.length - 1) + (e.key === 'ArrowDown' ? 1 : -1)));
+        render();
+        setTimeout(() => { const o = root.querySelector('.dd-pop .sbox-opt.hi'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
+        return;
+      }
+      if (e.key === 'Enter') { e.preventDefault(); const o = list[Math.min(S.dd.hi, list.length - 1)]; if (o) ddPick(o[0]); return; }
+    }
     if (e.key !== 'Escape') return;
+    if (S.dd) { S.dd = null; return render(); }
     if (S.storeOpen) { closeStore(); return render(); }
     if (S.hr.wkOpen || S.hr.dl) { S.hr.wkOpen = false; S.hr.dl = false; return render(); }
     if (S.ms) { S.ms = null; return render(); }
