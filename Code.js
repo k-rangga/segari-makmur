@@ -471,8 +471,10 @@ function bootstrap_(me) {
 function saveRegistrations_(me, changes, code, store) {
   if (!Array.isArray(changes) || changes.length > 400) throw new Error('Data pendaftaran tidak valid.');
   const s = settings_(), now = now_(), closures = closures_();
-  const st = String(store || '').trim() || me.store;
-  if (storeChoices_().indexOf(st) < 0 && st !== me.store) throw new Error('Pilih lokasi store yang tersedia.');
+  // A store must be chosen for any day with portions; removals alone need none.
+  const st = String(store || '').trim();
+  const adds = changes.some(c => c && ((parseInt(c.l, 10) || 0) || (parseInt(c.d, 10) || 0)));
+  if (adds && storeChoices_().indexOf(st) < 0) throw new Error(st ? 'Pilih lokasi store yang tersedia.' : 'Pilih lokasi store dulu.');
   let skipped = 0;
   const clean = {};
   changes.forEach(c => {

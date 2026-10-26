@@ -252,8 +252,9 @@ function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
   S.stores = d.stores || [];
-  // Store picked on submit: the last one used in this browser, else the employee's own store.
-  if (S.stores.indexOf(S.store) < 0) S.store = [ls.get('pm-store'), d.user.store].find(st => st && S.stores.indexOf(st) >= 0) || '';
+  // Store picked on submit: the last one used in this browser. Never filled from the employee sheet,
+  // so the first send needs a real choice.
+  if (S.stores.indexOf(S.store) < 0) S.store = S.stores.indexOf(ls.get('pm-store')) >= 0 ? ls.get('pm-store') : '';
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
     S.view = d.user.admin && ['recap', 'closure', 'voucher'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
@@ -1572,7 +1573,7 @@ const A = {
     const vch = S.voucher, added = addedByMonth(pend);
     if (vch && !sumObj(added)) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
     const store = S.store;
-    if (!store && pend.some(c => c.l || c.d)) return flash('Pilih lokasi store dulu.');
+    if (!store && pend.some(c => c.l || c.d)) { S.storeOpen = true; S.storeFocus = true; S.storeHi = 0; render(); return flash('Pilih lokasi store dulu sebelum mengirim.'); }
     if (store) ls.set('pm-store', store);
     const n = pend.reduce((a, c) => a + c.n, 0), before = {}, changes = pend.map(c => ({ date: c.date, l: c.l, d: c.d }));
     const tentative = vch ? { code: vch.code, split: splitVoucher(vch.value, added), pending: true } : null;
