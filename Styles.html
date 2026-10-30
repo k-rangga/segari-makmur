@@ -308,9 +308,27 @@ main.emp{gap:28px}
 .vinput:focus{border:1.5px solid #e4f3ea}
 /* Store picker in the dark pending bar: same frame as the voucher input, opens a searchable list upward. */
 .st-modal{display:flex;flex-direction:column;gap:14px}
-.st-pick{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:8px;background:#f6f7f5}
-.st-pick .st-loc{font-size:14px;color:#1d211f}
-.st-list{max-height:min(320px,45vh);overflow-y:auto;display:flex;flex-direction:column;margin:-4px -6px 0}
+.st-list{max-height:min(420px,55vh);overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px}
+.st-grp{display:flex;flex-direction:column;gap:8px}
+.st-grp-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1d211f}
+.st-grp-h svg{color:#1f5f4a}
+.st-grp-h i{font-style:normal;font-weight:400;color:#5d6560}
+.st-chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.st-chip{min-height:44px;padding:8px 10px;border-radius:8px;border:1px solid #d5d9d4;background:#FFFFFF;color:#1d211f;font-size:14px;font-weight:600;text-align:center;display:flex;align-items:center;justify-content:center;min-width:0}
+.st-chip:hover,.st-chip.hi{border-color:#1f5f4a;background:#f6f7f5}
+.st-chip.on{border:1.5px solid #1f5f4a;background:#e4f3ea;color:#194e3d}
+.st-chip{flex-direction:column;gap:0}
+.st-chip small{font-size:11px;font-weight:600;color:#8a5a0b}
+.st-row-w{display:flex;flex-direction:column;gap:8px}
+.st-row-w.open{padding-bottom:6px;border-bottom:1px solid #eef0ec}
+.st-row{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;border-radius:8px;border:1px solid #d5d9d4;background:#FFFFFF;color:#1d211f;font-size:15px;font-weight:600;text-align:left;justify-content:flex-start}
+.st-row svg:first-child{flex:none;color:#1f5f4a}
+.st-row small{margin-left:auto;font-size:13px;font-weight:500;color:#5d6560;flex:none}
+.st-row svg:last-child{flex:none;color:#5d6560;transition:transform .15s}
+.st-row[aria-expanded="true"] svg:last-child{transform:rotate(180deg)}
+.st-row:hover,.st-row.hi{border-color:#1f5f4a;background:#f6f7f5}
+.st-row.on{border:1.5px solid #1f5f4a;background:#e4f3ea;color:#194e3d}
+.st-row.on small{color:#194e3d;font-weight:700}
 .sbox-opt{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:8px 10px;border:0;border-radius:8px;background:transparent;color:#1d211f;font-size:14px;text-align:left}
 .sbox-opt.hi,.sbox-opt:hover{background:#f0f2ee}
 .sbox-opt.on{font-weight:700;color:#1f5f4a}

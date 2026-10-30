@@ -79,7 +79,7 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '', team: '', teams: {}, storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
+  stores: [], store: '', team: '', teams: {}, openSt: '', lastTm: '', autoSt: '', storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
   hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: 'store', missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
@@ -499,37 +499,95 @@ function voucherBox(pend) {
     '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
 }
 
-// Asked on every "Kirim pendaftaran" that adds portions: the store where these meals are eaten, then the team
-// when that store has teams. Starts empty each time (nothing remembered); Kirim stays disabled until both are set.
-function closeStore() { S.storeAsk = false; S.store = ''; S.team = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
+// Asked on every "Kirim pendaftaran" that adds portions, in one step: where these meals are eaten and, when that
+// store has teams, which team (required). Opens on this browser's last store (its teams shown, the last team marked
+// "Terakhir" but not chosen). Up to 2 stores with teams: every store's teams are shown as buttons. From 3: stores are
+// rows and tapping one opens its teams under it (one at a time). Searching shows every match, teams across all stores.
+const ASK_COLLAPSE = 3;
+function closeStore() { S.storeAsk = false; S.store = ''; S.team = ''; S.openSt = ''; S.lastTm = ''; S.autoSt = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
 const teamsOf = st => S.teams[st] || [];
-const teamStep = () => !!S.store && teamsOf(S.store).length > 0;
-// The pop-up lists stores, or the chosen store's teams once a store with teams is picked.
-function askMatches() {
-  const q = S.storeQ.trim().toLowerCase();
-  return (teamStep() ? teamsOf(S.store) : S.stores).filter(x => !q || x.toLowerCase().indexOf(q) >= 0);
+const askReady = () => !!S.store && (!teamsOf(S.store).length || teamsOf(S.store).indexOf(S.team) >= 0);
+const askLabel = o => o.st + (o.tm ? ' · ' + o.tm : '');
+// The last store (+ team) sent from this browser, while the store still exists; tm '' when that team is gone.
+function askLast() {
+  let o = null;
+  try { o = JSON.parse(ls.get('pm-last') || 'null'); } catch (e) { o = null; }
+  if (!o || S.stores.indexOf(o.st) < 0) return null;
+  return { st: o.st, tm: teamsOf(o.st).indexOf(o.tm) >= 0 ? o.tm : '' };
 }
-const askReady = () => !!S.store && (!teamStep() || !!S.team);
-function askPick(v) {
-  if (teamStep()) S.team = v;
-  else { S.store = v; S.team = ''; }
-  S.storeQ = ''; S.storeHi = -1; S.storeFocus = true;
+function askOpen() {
+  closeStore();
+  const last = askLast();
+  if (last) { S.store = S.autoSt = S.openSt = last.st; S.lastTm = last.tm; }
+  S.storeAsk = true; S.storeFocus = true;
+}
+const askCollapsed = () => !S.storeQ.trim() && S.stores.filter(st => teamsOf(st).length).length >= ASK_COLLAPSE;
+// Everything the pop-up shows, in order: { k: 'row' (store with teams, collapsed mode) | 'team' | 'store', st, tm }.
+function askItems() {
+  const q = S.storeQ.trim().toLowerCase(), hit = x => !q || x.toLowerCase().indexOf(q) >= 0, out = [];
+  if (askCollapsed()) {
+    S.stores.forEach(st => {
+      if (!teamsOf(st).length) return out.push({ k: 'store', st, tm: '' });
+      out.push({ k: 'row', st, tm: '' });
+      if (S.openSt === st) teamsOf(st).forEach(tm => out.push({ k: 'team', st, tm }));
+    });
+    return out;
+  }
+  // A search matching the store name keeps all its teams.
+  S.stores.filter(st => teamsOf(st).length).forEach(st => teamsOf(st).forEach(tm => { if (hit(st) || hit(tm) || hit(st + ' ' + tm)) out.push({ k: 'team', st, tm }); }));
+  S.stores.filter(st => !teamsOf(st).length && hit(st)).forEach(st => out.push({ k: 'store', st, tm: '' }));
+  return out;
+}
+function askPick(o) {
+  if (o.k === 'row') {
+    const open = S.openSt !== o.st;
+    S.openSt = open ? o.st : '';
+    if (S.store !== o.st) { S.store = o.st; S.team = ''; }
+  } else { S.store = o.st; S.team = o.tm; if (o.k === 'store') S.openSt = ''; }
   render();
 }
 function storeModalView() {
   if (!S.storeAsk) return '';
-  const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), list = askMatches(), hi = Math.min(S.storeHi, list.length - 1);
-  const ts = teamStep(), cur = ts ? S.team : S.store, what = ts ? 'tim' : 'store';
-  return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih ' + what + '">' +
-    '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>' + (ts ? 'Tim kamu di ' + esc(S.store) + '?' : 'Makan di store mana?') + '</b></div>' +
-    (S.store ? '<div class="st-pick"><span class="st-loc">' + ICON.pin(13) + '<span class="ell">' + esc(S.store) + (S.team ? ' · ' + esc(S.team) : '') + '</span></span><button class="link" data-a="storeReset">Ganti store</button></div>' : '') +
-    '<span class="note">' + (ts ? 'Store ini punya ' + teamsOf(S.store).length + ' tim. Pilih timmu, wajib diisi.' : 'Pilih lokasi store tempat kamu makan untuk pendaftaran ini. Wajib diisi.') + '</span>' +
-    '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari ' + what + '" autocomplete="off" spellcheck="false" aria-label="Cari ' + what + '">' +
-    '<div class="st-list" role="listbox" data-keep="storeList">' + list.map((x, i) =>
-      '<button type="button" role="option" aria-selected="' + (x === cur) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (x === cur ? ' on' : '') + '" data-a="storePick" data-v="' + esc(x) + '"><span class="ell">' + esc(x) + '</span>' + (x === cur ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
-    (list.length ? '' : '<span class="sbox-empty">' + (ts ? 'Tim' : 'Store') + ' tidak ditemukan</span>') + '</div>' +
+  const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), items = askItems(), hi = Math.min(S.storeHi, items.length - 1);
+  const attrs = (o, i) => ' data-a="storePick" data-k="' + o.k + '" data-st="' + esc(o.st) + '" data-tm="' + esc(o.tm) + '"' + (i === hi ? ' data-hi="1"' : '');
+  const chip = (o, i, text) => {
+    const on = o.st === S.store && o.tm === S.team, last = o.k === 'team' && o.st === S.store && o.tm === S.lastTm && !on;
+    return '<button type="button" role="option" aria-selected="' + on + '" class="st-chip' + (i === hi ? ' hi' : '') + (on ? ' on' : '') + '"' + attrs(o, i) + ' title="' + esc(askLabel(o)) + '">' +
+      '<span class="ell">' + esc(text) + '</span>' + (last ? '<small>Terakhir</small>' : '') + '</button>';
+  };
+  let body = '';
+  if (askCollapsed()) {
+    let i = 0;
+    while (i < items.length) {
+      const o = items[i], idx = i++;
+      if (o.k === 'store') {
+        const sel = S.store === o.st;
+        body += '<div class="st-row-w"><button type="button" role="option" aria-selected="' + sel + '" class="st-row' + (idx === hi ? ' hi' : '') + (sel ? ' on' : '') + '"' + attrs(o, idx) + '>' +
+          ICON.pin(14) + '<span class="ell">' + esc(o.st) + '</span>' + (sel ? '<small>Dipilih</small>' : '') + '</button></div>';
+        continue;
+      }
+      const open = S.openSt === o.st, sel = S.store === o.st, teams = [];
+      while (i < items.length && items[i].k === 'team' && items[i].st === o.st) teams.push([items[i], i++]);
+      body += '<div class="st-row-w' + (open ? ' open' : '') + '"><button type="button" class="st-row' + (idx === hi ? ' hi' : '') + (sel ? ' on' : '') + '"' + attrs(o, idx) + ' aria-expanded="' + open + '">' +
+        ICON.pin(14) + '<span class="ell">' + esc(o.st) + '</span><small>' + (sel && S.team ? esc(S.team) : teamsOf(o.st).length + ' tim') + '</small>' + ICON.chev(16) + '</button>' +
+        (open ? '<div class="st-chips">' + teams.map(t => chip(t[0], t[1], t[0].tm)).join('') + '</div>' : '') + '</div>';
+    }
+  } else {
+    const groups = {}, plain = [];
+    items.forEach((o, i) => { if (o.k === 'team') (groups[o.st] = groups[o.st] || []).push([o, i]); else plain.push([o, i]); });
+    Object.keys(groups).forEach(st => {
+      body += '<div class="st-grp"><span class="st-grp-h">' + ICON.pin(13) + esc(st) + ' <i>· pilih tim</i></span><div class="st-chips">' + groups[st].map(t => chip(t[0], t[1], t[0].tm)).join('') + '</div></div>';
+    });
+    if (plain.length) body += '<div class="st-grp">' + (Object.keys(groups).length ? '<span class="st-grp-h">' + ICON.pin(13) + 'Store lain</span>' : '') + '<div class="st-chips">' + plain.map(t => chip(t[0], t[1], t[0].st)).join('') + '</div></div>';
+  }
+  const needTeam = S.store && teamsOf(S.store).length && !askReady();
+  return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih store dan tim">' +
+    '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>Makan di store mana?</b></div>' +
+    '<span class="note">' + (S.autoSt && S.store === S.autoSt ? 'Store terakhirmu sudah dipilih. ' : '') + 'Pilih store, dan timmu kalau store itu punya tim. Wajib diisi.</span>' +
+    '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store atau tim" autocomplete="off" spellcheck="false" aria-label="Cari store atau tim">' +
+    '<div class="st-list" role="listbox" data-keep="storeList">' + body + (items.length ? '' : '<span class="sbox-empty">Store atau tim tidak ditemukan</span>') + '</div>' +
     '<div class="modal-a"><button class="btn" data-a="storeCancel">Batal</button><button class="btn-primary" data-a="storeSend"' + (askReady() ? '' : ' disabled') + '>' +
-    (askReady() ? 'Kirim · ' + esc(S.store + (S.team ? ' · ' + S.team : '')) : 'Pilih ' + what + ' dulu') + '</button></div></div>';
+    (askReady() ? 'Kirim · ' + esc(askLabel({ st: S.store, tm: S.team })) : needTeam ? 'Pilih tim di ' + esc(S.store) : 'Pilih store dulu') + '</button></div></div>';
 }
 
 function pendingBarView(pend, now) {
@@ -1692,16 +1750,16 @@ const A = {
     if (!pend.length) return;
     if (S.voucher && !sumObj(addedByMonth(pend))) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
     if (!pend.some(c => c.l || c.d)) return A.send('', '');
-    closeStore(); S.storeAsk = true; S.storeFocus = true; S.pop = null;
+    askOpen(); S.pop = null;
     render();
   },
   storeSend() {
-    if (!askReady()) return flash(S.store ? 'Pilih tim dulu sebelum mengirim.' : 'Pilih lokasi store dulu sebelum mengirim.');
+    if (!askReady()) return flash(S.store ? 'Pilih tim di ' + S.store + ' dulu sebelum mengirim.' : 'Pilih lokasi store dulu sebelum mengirim.');
     const store = S.store, team = S.team;
+    ls.set('pm-last', JSON.stringify({ st: store, tm: team }));
     closeStore();
     A.send(store, team);
   },
-  storeReset() { S.store = ''; S.team = ''; S.storeQ = ''; S.storeHi = -1; S.storeFocus = true; render(); },
   storeCancel() { closeStore(); render(); },
   send(store, team) {
     const pend = pendingChanges(nowJ());
@@ -1737,7 +1795,7 @@ const A = {
   },
   ddToggle(el) { if (S.dd && S.dd.id === el.dataset.id) S.dd = null; else ddOpen(el); render(); },
   ddPick(el) { ddPick(el.dataset.v); },
-  storePick(el) { askPick(el.dataset.v); },
+  storePick(el) { askPick({ k: el.dataset.k, st: el.dataset.st, tm: el.dataset.tm || '' }); },
   closePop() { S.pop = null; render(); },
   qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
   popRemove() { const P = S.pop; setQty(P.k, P.mk, 0); S.pop = null; render(); },
@@ -2090,12 +2148,12 @@ function init() {
   window.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
     if (S.storeAsk && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
-      const list = askMatches();
+      const list = askItems();
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         S.storeHi = Math.max(0, Math.min(list.length - 1, Math.min(S.storeHi, list.length - 1) + (e.key === 'ArrowDown' ? 1 : -1)));
         render();
-        setTimeout(() => { const o = root.querySelector('.sbox-opt.hi'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
+        setTimeout(() => { const o = root.querySelector('.st-list [data-hi]'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
         return;
       }
       // Enter picks the highlighted store / team, or sends once both are set and nothing is highlighted.
