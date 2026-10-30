@@ -79,13 +79,13 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '', teams: [], storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
+  stores: [], store: '', team: '', teams: {}, storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
   hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: 'store', missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
   myVouchers: [], voucher: null, vcode: '', vchecking: false,
   vc: { data: null, text: '', fileName: '', q: '', status: 'all', busy: false },
-  tm: { data: null, store: '', text: '', q: '', f: 'all', busy: false },
+  tm: { data: null, store: '', text: '', busy: false },
   dp: null, ms: null, msQ: '', dd: null, loading: {}, loadErr: {}, toast: null
 };
 
@@ -139,7 +139,7 @@ function leftTxt(m) {
 const blockOf = (list, k, meal) => list.find(c => c.date === k && (c.meal === 'both' || c.meal === meal)) || null;
 const savedQ = (k, mk) => (S.saved[k] || {})[mk] || 0;
 // Store location of a registered day (sent with the registration).
-const savedSt = k => { const v = S.saved[k]; return v && (v.l || v.d) ? v.st || '' : ''; };
+const savedSt = k => { const v = S.saved[k]; return v && (v.l || v.d) && v.st ? v.st + (v.tm ? ' · ' + v.tm : '') : ''; };   // "Store · Tim"
 // Store location of one registered meal ('' when that meal isn't registered). One store per day for now.
 const mealSt = (k, mk) => savedQ(k, mk) ? savedSt(k) : '';
 const locLine = (st, cls) => '<span class="' + cls + '" title="Lokasi store">' + ICON.pin(cls === 'mc-loc' ? 11 : 12) + '<span class="ell">' + esc(st) + '</span></span>';
@@ -255,7 +255,7 @@ function signOut(msg) {
 function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
-  S.stores = d.stores || []; S.teams = d.teams || [];
+  S.stores = d.stores || []; S.teams = d.teams && !Array.isArray(d.teams) ? d.teams : {};
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
     S.view = d.user.admin && ['recap', 'closure', 'voucher', 'team'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
@@ -322,7 +322,7 @@ function empView() {
     h += '<div class="notice"><b>Pengumuman minggu ini</b>' + notes.map(cs => '<div class="notice-r"><span>' + esc(cs.length > 1 ? fmt(cs[0].date) + ' – ' + dnum(cs[cs.length - 1].date) : fmt(cs[0].date)) + '</span><span>Kantin tutup (' + MEAL_NAME[cs[0].meal].toLowerCase() + ') · ' + esc(cs[0].reason) + '. Tidak ada biaya.</span></div>').join('') + '</div>';
   }
 
-  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span>' + teamPick() + '</div>';
+  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span>' + '</div>';
 
   // feedback banner for today's lunch
   const bannerOn = savedQ(today, 'l') && !blockOf(S.closures, today, 'lunch') && mealStarted(today, 'lunch', now) && !S.fb[today + '-lunch'] && ls.get('pm-fbDismiss') !== today;
@@ -345,14 +345,6 @@ function empView() {
     '<span class="help">Ketuk untuk memilih, atau tahan dan geser untuk memilih beberapa hari sekaligus. Ketuk lagi untuk atur porsi atau hapus. Pilihan baru tercatat setelah kamu tekan Kirim pendaftaran.</span>' +
     pendingBarView(pend, now) + '</div>' + summaryView(ym, now, pend) + '</div>';
   return h + '</main>';
-}
-
-// The employee's own team, from the teams of their store (hidden while the store has none).
-function teamPick() {
-  const cur = S.user.team || '';
-  if (!S.teams.length) return '';
-  return '<div class="team-pick"><b>Tim kamu di ' + esc(S.user.store) + '</b>' +
-    dd('myTeam', cur, (cur ? [['', 'Tanpa tim']] : []).concat(S.teams.map(t => [t, t])), { ch: 'myTeam', w: 220, ph: 'Pilih tim', aria: 'Pilih tim', warn: true }) + '</div>';
 }
 
 function thisWeekView(now) {
@@ -507,26 +499,37 @@ function voucherBox(pend) {
     '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
 }
 
-// Searchable store picker: opens upward from the pending bar, filters as you type, arrows + Enter to pick.
-function storeMatches() {
+// Asked on every "Kirim pendaftaran" that adds portions: the store where these meals are eaten, then the team
+// when that store has teams. Starts empty each time (nothing remembered); Kirim stays disabled until both are set.
+function closeStore() { S.storeAsk = false; S.store = ''; S.team = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
+const teamsOf = st => S.teams[st] || [];
+const teamStep = () => !!S.store && teamsOf(S.store).length > 0;
+// The pop-up lists stores, or the chosen store's teams once a store with teams is picked.
+function askMatches() {
   const q = S.storeQ.trim().toLowerCase();
-  return S.stores.filter(st => !q || st.toLowerCase().indexOf(q) >= 0);
+  return (teamStep() ? teamsOf(S.store) : S.stores).filter(x => !q || x.toLowerCase().indexOf(q) >= 0);
 }
-function closeStore() { S.storeAsk = false; S.store = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
-function pickStore(st) { S.store = st; render(); }
-// Asked on every "Kirim pendaftaran" that adds portions: where these meals are eaten. Starts empty each time
-// (nothing remembered), and Kirim stays disabled until a store is picked.
+const askReady = () => !!S.store && (!teamStep() || !!S.team);
+function askPick(v) {
+  if (teamStep()) S.team = v;
+  else { S.store = v; S.team = ''; }
+  S.storeQ = ''; S.storeHi = -1; S.storeFocus = true;
+  render();
+}
 function storeModalView() {
   if (!S.storeAsk) return '';
-  const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), list = storeMatches(), hi = Math.min(S.storeHi, list.length - 1);
-  return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih lokasi store">' +
-    '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>Makan di store mana?</b></div>' +
-    '<span class="note" style="margin-top:-6px">Pilih lokasi store tempat kamu makan untuk pendaftaran ini. Wajib diisi.</span>' +
-    '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store" autocomplete="off" spellcheck="false" aria-label="Cari store">' +
-    '<div class="st-list" role="listbox" data-keep="storeList">' + list.map((st, i) =>
-      '<button type="button" role="option" aria-selected="' + (st === S.store) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (st === S.store ? ' on' : '') + '" data-a="storePick" data-v="' + esc(st) + '"><span class="ell">' + esc(st) + '</span>' + (st === S.store ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
-    (list.length ? '' : '<span class="sbox-empty">Store tidak ditemukan</span>') + '</div>' +
-    '<div class="modal-a"><button class="btn" data-a="storeCancel">Batal</button><button class="btn-primary" data-a="storeSend"' + (S.store ? '' : ' disabled') + '>' + (S.store ? 'Kirim · ' + esc(S.store) : 'Pilih store dulu') + '</button></div></div>';
+  const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), list = askMatches(), hi = Math.min(S.storeHi, list.length - 1);
+  const ts = teamStep(), cur = ts ? S.team : S.store, what = ts ? 'tim' : 'store';
+  return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih ' + what + '">' +
+    '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>' + (ts ? 'Tim kamu di ' + esc(S.store) + '?' : 'Makan di store mana?') + '</b></div>' +
+    (S.store ? '<div class="st-pick"><span class="st-loc">' + ICON.pin(13) + '<span class="ell">' + esc(S.store) + (S.team ? ' · ' + esc(S.team) : '') + '</span></span><button class="link" data-a="storeReset">Ganti store</button></div>' : '') +
+    '<span class="note">' + (ts ? 'Store ini punya ' + teamsOf(S.store).length + ' tim. Pilih timmu, wajib diisi.' : 'Pilih lokasi store tempat kamu makan untuk pendaftaran ini. Wajib diisi.') + '</span>' +
+    '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari ' + what + '" autocomplete="off" spellcheck="false" aria-label="Cari ' + what + '">' +
+    '<div class="st-list" role="listbox" data-keep="storeList">' + list.map((x, i) =>
+      '<button type="button" role="option" aria-selected="' + (x === cur) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (x === cur ? ' on' : '') + '" data-a="storePick" data-v="' + esc(x) + '"><span class="ell">' + esc(x) + '</span>' + (x === cur ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
+    (list.length ? '' : '<span class="sbox-empty">' + (ts ? 'Tim' : 'Store') + ' tidak ditemukan</span>') + '</div>' +
+    '<div class="modal-a"><button class="btn" data-a="storeCancel">Batal</button><button class="btn-primary" data-a="storeSend"' + (askReady() ? '' : ' disabled') + '>' +
+    (askReady() ? 'Kirim · ' + esc(S.store + (S.team ? ' · ' + S.team : '')) : 'Pilih ' + what + ' dulu') + '</button></div></div>';
 }
 
 function pendingBarView(pend, now) {
@@ -791,12 +794,12 @@ function detailRow(r) {
     '<span class="ell" style="color:' + (r.team ? '#4a524d' : '#c5cbc6') + '"' + (r.team ? ' title="' + esc(r.team) + '"' : '') + '>' + (r.team ? esc(r.team) : '–') + '</span>' +
     qtyCell(r.l) + qtyCell(r.d) + '</div>';
 }
-// Grouped: one header per store (A–Z), or per team (own store, then team; "Tanpa tim" last), with its subtotal;
+// Grouped: one header per store (A–Z), or per team (store, then the team picked on submit; "Tanpa tim" last), with its subtotal;
 // rows keep the chosen sort inside each group.
 function detailBody(rows) {
   const G = S.hr.group;
   if (!G) return rows.map(detailRow).join('');
-  const by = {}, keyOf = r => G === 'team' ? (r.home || r.store) + '\u0000' + (r.team || '') : r.store;
+  const by = {}, keyOf = r => G === 'team' ? r.store + '\u0000' + (r.team || '') : r.store;
   rows.forEach(r => { const k = keyOf(r); (by[k] = by[k] || []).push(r); });
   const parts = k => k.split('\u0000');
   const order = G === 'team' ? (a, b) => { const x = parts(a), y = parts(b); return byStoreName(x[0], y[0]) || (!x[1]) - (!y[1]) || x[1].localeCompare(y[1], 'id', { sensitivity: 'base', numeric: true }); } : byStoreName;
@@ -917,8 +920,8 @@ function rangeView(m, now, long, prev, prevLabel, statsFirst, mid, afterStats) {
   return h + teamTableView(m.tm);
 }
 
-// Portions per team for the period, by the employee's own store and team; follows the store filter (as own store).
-// Hidden until someone with portions in the period has a team.
+// Portions per team for the period: the store and team picked on submit; follows the store filter.
+// Hidden until a registration in the period has a team.
 function teamTableView(tm) {
   const st = S.hr.rStore, rows = [];
   Object.keys(tm || {}).filter(h => st === 'all' || h === st).forEach(h => Object.keys(tm[h]).forEach(t => {
@@ -929,8 +932,8 @@ function teamTableView(tm) {
   rows.sort((a, b) => byStoreName(a.h, b.h) || (!a.t) - (!b.t) || a.t.localeCompare(b.t, 'id', { sensitivity: 'base', numeric: true }));
   const cols = 'minmax(140px,1.2fr) minmax(140px,1.2fr) repeat(3,minmax(70px,.6fr))', tot = rows.reduce((a, r) => [a[0] + r.l, a[1] + r.d], [0, 0]);
   const line = (a, b, l, d, cls) => '<div class="tr' + (cls || '') + '" style="grid-template-columns:' + cols + '">' + a + b + '<span class="r">' + nf(l) + '</span><span class="r" style="color:' + MC.dinner.x + '">' + nf(d) + '</span><span class="r" style="font-weight:700">' + nf(l + d) + '</span></div>';
-  return '<div class="tbl x"><div style="min-width:640px"><div class="tbar"><div class="t"><b>Per tim</b><span>Menurut store asal dan tim karyawan' + (st === 'all' ? '' : ' · ' + esc(st)) + '</span></div></div>' +
-    '<div class="tr th" style="grid-template-columns:' + cols + '"><span>Store asal</span><span>Tim</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
+  return '<div class="tbl x"><div style="min-width:640px"><div class="tbar"><div class="t"><b>Per tim</b><span>Menurut store dan tim yang dipilih saat mendaftar' + (st === 'all' ? '' : ' · ' + esc(st)) + '</span></div></div>' +
+    '<div class="tr th" style="grid-template-columns:' + cols + '"><span>Store</span><span>Tim</span><span class="r">Siang</span><span class="r" style="color:' + MC.dinner.x + '">Malam</span><span class="r">Total</span></div>' +
     rows.map(r => line('<span class="ell" style="color:#4a524d">' + esc(r.h) + '</span>', '<span class="ell" style="font-weight:600' + (r.t ? '' : ';color:#9aa39d') + '">' + esc(r.t || 'Tanpa tim') + '</span>', r.l, r.d)).join('') +
     line('<span>Total</span>', '<span></span>', tot[0], tot[1], ' tot') + '</div></div>';
 }
@@ -1392,7 +1395,6 @@ function voucherView() {
 }
 
 // ------------------------------------------------------------ teams (admin)
-const TM_COLS = '150px minmax(0,1.3fr) minmax(0,1fr) 230px';
 const TEAM_MAX = 60;
 const teamNames = text => text.split(/[\n,;]+/).map(t => t.trim().replace(/\s+/g, ' ')).filter(Boolean);
 function tmStore() { const D = S.tm.data; return !D ? '' : D.stores.indexOf(S.tm.store) >= 0 ? S.tm.store : D.stores[0] || ''; }
@@ -1403,36 +1405,25 @@ function newTeams(names, teams) {
 }
 function teamView() {
   const T = S.tm, D = T.data;
-  let h = '<main><div class="ph"><h1>Tim</h1><span>Tambahkan tim di tiap store. Karyawan memilih timnya sendiri di halaman Daftar makan, atau atur di sini.</span></div>';
+  let h = '<main><div class="ph"><h1>Tim</h1><span>Tambahkan tim di tiap store. Saat karyawan mengirim pendaftaran di store yang punya tim, mereka wajib memilih timnya.</span></div>';
   if (!D) return h + skelView(6) + '</main>';
   const st = tmStore();
   if (!st) return h + '<div class="empty">Belum ada store di tab employee.</div></main>';
-  const teams = D.teams[st] || [], emps = D.emps.filter(e => e[3] === st), count = {};
-  emps.forEach(e => { count[e[4]] = (count[e[4]] || 0) + 1; });
+  const teams = D.teams[st] || [], used = (D.used || {})[st] || {};
   const names = teamNames(T.text), add = newTeams(names, teams);
   h += '<div class="rhead">' + dd('tmStore', st, D.stores.map(x => [x, x]), { ch: 'tmStore', w: 240, lg: true, aria: 'Pilih store' }) +
-    '<span class="muted" style="font-size:14px">' + nf(teams.length) + ' tim · ' + nf(emps.length) + ' karyawan aktif · ' + nf(count[''] || 0) + ' belum punya tim</span></div>';
+    '<span class="muted" style="font-size:14px">' + (teams.length ? nf(teams.length) + ' tim · pendaftaran di store ini wajib memilih tim' : 'Belum ada tim · pendaftaran di store ini tanpa tim') + '</span></div>';
   h += '<div class="vc-up"><div class="vc-h"><b>Tambah tim di ' + esc(st) + '</b></div>' +
     '<span class="muted" style="font-size:13px">Satu nama tim per baris, atau pisahkan dengan koma. Nama bebas, maks. ' + TEAM_MAX + ' karakter; nama yang sudah ada dilewati.</span>' +
     '<textarea class="input" rows="4" data-f="tmText" data-in="tmText" placeholder="Kasir&#10;Gudang pagi&#10;Gudang malam">' + esc(T.text) + '</textarea>' +
     (names.length ? '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px"><span><b>' + nf(add.length) + '</b> tim baru</span>' + (names.length - add.length ? '<span class="warn"><b>' + nf(names.length - add.length) + '</b> sudah ada, berulang atau terlalu panjang, dilewati</span>' : '') + '</div>' : '') +
     '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn lg" data-a="tmClear"' + (T.text ? '' : ' disabled') + '>Kosongkan</button>' +
     '<button class="btn-primary" data-a="tmAdd"' + (!add.length || T.busy ? ' disabled' : '') + '>' + (T.busy ? 'Menyimpan…' : 'Simpan ' + nf(add.length) + ' tim') + '</button></div></div>';
-  const TL = 'minmax(0,1fr) 120px 70px';
+  const TL = 'minmax(0,1fr) 190px 70px';
   h += '<div class="tbl"><div class="tbar"><div class="t"><b>Tim di ' + esc(st) + '</b><span>' + nf(teams.length) + ' tim · A–Z</span></div></div>' +
-    teams.map(t => '<div class="tr hov" style="grid-template-columns:' + TL + '"><span class="ell" style="font-weight:600">' + esc(t) + '</span><span class="r" style="color:#4a524d">' + nf(count[t] || 0) + ' orang</span>' +
+    teams.map(t => '<div class="tr hov" style="grid-template-columns:' + TL + '"><span class="ell" style="font-weight:600">' + esc(t) + '</span><span class="r" style="color:#4a524d" title="Hari makan mulai hari ini yang memakai tim ini">' + nf(used[t] || 0) + ' pendaftaran mendatang</span>' +
       '<button class="link muted" style="justify-self:end;font-size:12px" data-a="tmRemove" data-t="' + esc(t) + '">Hapus</button></div>').join('') +
     (teams.length ? '' : '<div class="empty">Belum ada tim di store ini. Tambahkan di atas.</div>') + '</div>';
-  const q = T.q.trim().toLowerCase(), f = T.f === 'all' || T.f === '' || teams.indexOf(T.f) >= 0 ? T.f : 'all';
-  const list = emps.filter(e => (f === 'all' || e[4] === f) && (!q || (e[0] + ' ' + e[1] + ' ' + e[2]).toLowerCase().indexOf(q) >= 0)).sort((a, b) => a[1].localeCompare(b[1]));
-  h += '<div class="tbl"><div class="tbar" style="gap:10px"><div class="t" style="margin-right:auto"><b>Anggota tim</b><span>' + nf(list.length) + ' karyawan · perubahan langsung tersimpan</span></div>' +
-    dd('tmFilter', f, [['all', 'Semua tim'], ['', 'Belum punya tim']].concat(teams.map(t => [t, t])), { ch: 'tmFilter', w: 190, aria: 'Filter tim' }) +
-    '<input class="input" style="width:230px" data-f="tmq" data-in="tmq" value="' + esc(T.q) + '" placeholder="Cari nama, NIK, departemen"></div>' +
-    '<div style="overflow-x:auto"><div style="min-width:720px"><div class="tr th" style="grid-template-columns:' + TM_COLS + '"><span>NIK</span><span>Nama</span><span>Departemen</span><span>Tim</span></div>' +
-    '<div class="tbody" data-keep="tmlist">' + list.map(e => '<div class="tr hov" style="grid-template-columns:' + TM_COLS + '"><span class="tnum ell" style="color:#4a524d" title="' + esc(e[0]) + '">' + esc(e[0]) + '</span>' +
-      '<span class="ell">' + esc(e[1]) + '</span><span class="ell" style="color:#4a524d">' + esc(e[2]) + '</span>' +
-      dd('tmSet:' + e[0], e[4], [['', 'Tanpa tim']].concat(teams.map(t => [t, t])), { ch: 'tmSet', data: { n: e[0] }, aria: 'Tim ' + e[1], disabled: !teams.length }) + '</div>').join('') +
-    (list.length ? '' : '<div class="empty">' + (emps.length ? 'Tidak ada karyawan yang cocok.' : 'Belum ada karyawan aktif di store ini.') + '</div>') + '</div></div></div></div>';
   return h + '</main>';
 }
 
@@ -1700,18 +1691,19 @@ const A = {
     const pend = pendingChanges(nowJ());
     if (!pend.length) return;
     if (S.voucher && !sumObj(addedByMonth(pend))) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
-    if (!pend.some(c => c.l || c.d)) return A.send('');
+    if (!pend.some(c => c.l || c.d)) return A.send('', '');
     closeStore(); S.storeAsk = true; S.storeFocus = true; S.pop = null;
     render();
   },
   storeSend() {
-    const store = S.store;
-    if (!store) return flash('Pilih lokasi store dulu sebelum mengirim.');
+    if (!askReady()) return flash(S.store ? 'Pilih tim dulu sebelum mengirim.' : 'Pilih lokasi store dulu sebelum mengirim.');
+    const store = S.store, team = S.team;
     closeStore();
-    A.send(store);
+    A.send(store, team);
   },
+  storeReset() { S.store = ''; S.team = ''; S.storeQ = ''; S.storeHi = -1; S.storeFocus = true; render(); },
   storeCancel() { closeStore(); render(); },
-  send(store) {
+  send(store, team) {
     const pend = pendingChanges(nowJ());
     if (!pend.length) return render();
     const vch = S.voucher, added = addedByMonth(pend);
@@ -1720,11 +1712,11 @@ const A = {
     if (tentative) { tentative.discount = sumObj(tentative.split); S.myVouchers.push(tentative); S.voucher = null; }
     pend.forEach(c => {
       before[c.date] = S.saved[c.date] ? clone(S.saved[c.date]) : null;
-      if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d, st: store }; else delete S.saved[c.date];
+      if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d, st: store, tm: team }; else delete S.saved[c.date];
     });
     S.syncing++; S.pop = null;
-    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (store ? ' · ' + store : '') + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
-    S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null, store }).then(r => {
+    flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (store ? ' · ' + store + (team ? ' · ' + team : '') : '') + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
+    S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null, store, team }).then(r => {
       S.syncing--;
       if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1, r.voucher || tentative); }
       changes.forEach(c => {                       // align server-adjusted days (closed meal, locked) if untouched since
@@ -1739,13 +1731,13 @@ const A = {
       changes.forEach(c => { const b = before[c.date]; if (b) S.saved[c.date] = b; else delete S.saved[c.date]; });
       if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1); if (!S.voucher) S.voucher = vch; }
       if (isSession(e)) return fail(e);
-      flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.send(store), 'Coba lagi');
+      flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.send(store, team), 'Coba lagi');
     }));
     render();
   },
   ddToggle(el) { if (S.dd && S.dd.id === el.dataset.id) S.dd = null; else ddOpen(el); render(); },
   ddPick(el) { ddPick(el.dataset.v); },
-  storePick(el) { pickStore(el.dataset.v); },
+  storePick(el) { askPick(el.dataset.v); },
   closePop() { S.pop = null; render(); },
   qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
   popRemove() { const P = S.pop; setQty(P.k, P.mk, 0); S.pop = null; render(); },
@@ -1784,7 +1776,7 @@ const A = {
   exportMissing() {
     const w = S.hr.weekCache[S.hr.ws]; if (!w || !w.missing) return;
     const list = w.missing.filter(e => S.hr.rStore === 'all' || e.store === S.hr.rStore).sort((a, b) => byStoreName(a.store, b.store) || a.name.localeCompare(b.name));
-    download('belum-daftar-minggu-' + S.hr.ws + '.csv', ['NIK,Nama,Departemen,Store,Tim,Kategori'].concat(list.map(e => [csvq(e.nik), csvq(e.name), csvq(e.dept), csvq(e.store), csvq(e.team || ''), collarName(e.collar)].join(','))), 'Daftar diekspor');
+    download('belum-daftar-minggu-' + S.hr.ws + '.csv', ['NIK,Nama,Departemen,Store,Kategori'].concat(list.map(e => [csvq(e.nik), csvq(e.name), csvq(e.dept), csvq(e.store), collarName(e.collar)].join(','))), 'Daftar diekspor');
   },
   wkNav(el) { S.hr.ws = addDays(S.hr.ws, Number(el.dataset.n)); S.hr.wkOpen = false; render(); },
   wkToday() { S.hr.ws = thisWeek(nowJ()); S.hr.wkOpen = false; render(); },
@@ -1954,17 +1946,17 @@ const A = {
       const d = await call('addTeams', { store: st, names });
       d._at = Date.now(); T.data = d; T.text = ''; T.busy = false; staleAdmin();
       flash(nf(d.added) + ' tim ditambahkan di ' + st + (d.skipped.length ? ' · ' + nf(d.skipped.length) + ' dilewati' : ''));
-      if (st === S.user.store) refreshEmployee();
+      refreshEmployee();
     } catch (e) { T.busy = false; render(); fail(e); }
   },
   async tmRemove(el) {
-    const T = S.tm, st = tmStore(), t = el.dataset.t, n = T.data.emps.filter(e => e[3] === st && e[4] === t).length;
-    if (!window.confirm('Hapus tim ' + t + ' di ' + st + '?' + (n ? ' ' + n + ' anggotanya menjadi tanpa tim.' : ''))) return;
+    const T = S.tm, st = tmStore(), t = el.dataset.t, n = ((T.data.used || {})[st] || {})[t] || 0;
+    if (!window.confirm('Hapus tim ' + t + ' di ' + st + '?' + (n ? ' ' + n + ' pendaftaran mendatang tetap tercatat dengan nama tim ini.' : ''))) return;
     try {
       const d = await call('removeTeam', { store: st, team: t });
-      d._at = Date.now(); T.data = d; if (T.f === t) T.f = 'all'; staleAdmin();
+      d._at = Date.now(); T.data = d; staleAdmin();
       flash('Tim ' + t + ' dihapus');
-      if (st === S.user.store) refreshEmployee();
+      refreshEmployee();
     } catch (e) { fail(e); }
   },
 
@@ -2007,7 +1999,6 @@ const IN = {
   msQ(v) { S.msQ = v; render(); },
   vcText(v) { S.vc.text = v; render(); },
   tmText(v) { S.tm.text = v; render(); },
-  tmq(v) { S.tm.q = v; render(); },
   vcq(v) { S.vc.q = v; render(); }
 };
 const CH = {
@@ -2029,31 +2020,9 @@ const CH = {
   clSkip(v, el) { S.cl.skip = el.checked; render(); },
   vcStatus(v) { S.vc.status = v; render(); },
   // Optimistic: shown at once, rolled back if the server refuses.
-  myTeam(v) {
-    const prev = S.user.team || '';
-    S.user.team = v; render();
-    call('setMyTeam', { team: v }).then(r => {
-      S.user.team = r.team; persistBoot();
-      flash(r.team ? 'Tim disimpan · ' + r.team : 'Tim dikosongkan');
-    }, e => {
-      S.user.team = prev; render();
-      if (isSession(e)) return fail(e);
-      flash('Tim belum tersimpan · ' + errMsg(e));
-    });
-  },
-  tmStore(v) { S.tm.store = v; S.tm.f = 'all'; render(); },
-  tmFilter(v) { S.tm.f = v; render(); },
-  tmSet(v, el) {
-    const T = S.tm, nik = el.dataset.n, e = T.data.emps.find(x => x[0] === nik);
-    if (!e) return;
-    const prev = e[4];
-    e[4] = v; render();
-    call('setTeams', { list: [{ nik, team: v }] }).then(d => {
-      d._at = Date.now(); T.data = d; staleAdmin();
-      if (nik === S.user.nik) { S.user.team = v; persistBoot(); }
-      flash(e[1] + (v ? ' masuk tim ' + v : ' sekarang tanpa tim'));
-    }, err => { e[4] = prev; render(); fail(err); });
-  },
+
+  tmStore(v) { S.tm.store = v; render(); },
+
   vcFile(v, el) {
     const f = el.files && el.files[0];
     if (!f) return;
@@ -2121,7 +2090,7 @@ function init() {
   window.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
     if (S.storeAsk && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
-      const list = storeMatches();
+      const list = askMatches();
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         S.storeHi = Math.max(0, Math.min(list.length - 1, Math.min(S.storeHi, list.length - 1) + (e.key === 'ArrowDown' ? 1 : -1)));
@@ -2129,8 +2098,8 @@ function init() {
         setTimeout(() => { const o = root.querySelector('.sbox-opt.hi'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
         return;
       }
-      // Enter picks the highlighted store; a second Enter on the same store sends.
-      if (e.key === 'Enter') { e.preventDefault(); const st = list[Math.min(S.storeHi, list.length - 1)]; if (st && st === S.store) A.storeSend(); else if (st) pickStore(st); return; }
+      // Enter picks the highlighted store / team, or sends once both are set and nothing is highlighted.
+      if (e.key === 'Enter') { e.preventDefault(); const x = list[Math.min(S.storeHi, list.length - 1)]; if (x) askPick(x); else if (askReady()) A.storeSend(); return; }
     }
     if (S.dd && e.target && e.target.dataset && e.target.dataset.in === 'ddQ') {
       const list = ddMatches(DD[S.dd.id].opts);
