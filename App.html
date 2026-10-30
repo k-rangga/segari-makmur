@@ -79,7 +79,7 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '', teams: [], storeOpen: false, storeQ: '', storeHi: 0, storeFocus: false,
+  stores: [], store: '', teams: [], storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
   hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: 'store', missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
@@ -192,7 +192,7 @@ function view() {
   if (S.booting) return '<div class="boot">Memuat…</div>';
   if (!S.user) return loginView() + toastView();
   const main = !S.user.admin || S.view === 'meal' ? empView() : S.view === 'recap' ? recapView() : S.view === 'closure' ? closureView() : S.view === 'voucher' ? voucherView() : S.view === 'team' ? teamView() : empView();
-  return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + dpView() + fbModalView() + printView() + toastView();
+  return '<div class="app">' + sideView() + '<div class="content">' + main + '</div></div>' + popView() + dpView() + fbModalView() + storeModalView() + printView() + toastView();
 }
 
 // `act` adds a toast button: "Urungkan" by default, or `label` (e.g. "Coba lagi").
@@ -256,9 +256,6 @@ function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
   S.stores = d.stores || []; S.teams = d.teams || [];
-  // Store picked on submit: the last one used in this browser. Never filled from the employee sheet,
-  // so the first send needs a real choice.
-  if (S.stores.indexOf(S.store) < 0) S.store = S.stores.indexOf(ls.get('pm-store')) >= 0 ? ls.get('pm-store') : '';
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
     S.view = d.user.admin && ['recap', 'closure', 'voucher', 'team'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
@@ -515,20 +512,21 @@ function storeMatches() {
   const q = S.storeQ.trim().toLowerCase();
   return S.stores.filter(st => !q || st.toLowerCase().indexOf(q) >= 0);
 }
-function closeStore() { S.storeOpen = false; S.storeQ = ''; S.storeHi = 0; }
-function pickStore(st) { S.store = st; closeStore(); render(); }
-function storeBox() {
-  let h = '<div class="sbox" data-store-root><button type="button" class="vstore' + (S.store ? '' : ' empty') + '" data-a="storeToggle" aria-haspopup="listbox" aria-expanded="' + S.storeOpen + '" title="Lokasi store tempat kamu makan">' +
-    '<span class="ell">' + esc(S.store || 'Pilih lokasi store') + '</span></button>';
-  if (S.storeOpen) {
-    const list = storeMatches(), hi = Math.max(0, Math.min(S.storeHi, list.length - 1));
-    h += '<div class="sbox-pop" role="dialog" aria-label="Pilih lokasi store">' +
-      '<input class="input" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store" autocomplete="off" spellcheck="false" aria-label="Cari store">' +
-      '<div class="sbox-list" role="listbox" data-keep="storeList">' + list.map((st, i) =>
-        '<button type="button" role="option" aria-selected="' + (st === S.store) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (st === S.store ? ' on' : '') + '" data-a="storePick" data-v="' + esc(st) + '"><span class="ell">' + esc(st) + '</span>' + (st === S.store ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
-      (list.length ? '' : '<span class="sbox-empty">Store tidak ditemukan</span>') + '</div></div>';
-  }
-  return h + '</div>';
+function closeStore() { S.storeAsk = false; S.store = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
+function pickStore(st) { S.store = st; render(); }
+// Asked on every "Kirim pendaftaran" that adds portions: where these meals are eaten. Starts empty each time
+// (nothing remembered), and Kirim stays disabled until a store is picked.
+function storeModalView() {
+  if (!S.storeAsk) return '';
+  const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), list = storeMatches(), hi = Math.min(S.storeHi, list.length - 1);
+  return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih lokasi store">' +
+    '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>Makan di store mana?</b></div>' +
+    '<span class="note" style="margin-top:-6px">Pilih lokasi store tempat kamu makan untuk pendaftaran ini. Wajib diisi.</span>' +
+    '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store" autocomplete="off" spellcheck="false" aria-label="Cari store">' +
+    '<div class="st-list" role="listbox" data-keep="storeList">' + list.map((st, i) =>
+      '<button type="button" role="option" aria-selected="' + (st === S.store) + '" class="sbox-opt' + (i === hi ? ' hi' : '') + (st === S.store ? ' on' : '') + '" data-a="storePick" data-v="' + esc(st) + '"><span class="ell">' + esc(st) + '</span>' + (st === S.store ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') +
+    (list.length ? '' : '<span class="sbox-empty">Store tidak ditemukan</span>') + '</div>' +
+    '<div class="modal-a"><button class="btn" data-a="storeCancel">Batal</button><button class="btn-primary" data-a="storeSend"' + (S.store ? '' : ' disabled') + '>' + (S.store ? 'Kirim · ' + esc(S.store) : 'Pilih store dulu') + '</button></div></div>';
 }
 
 function pendingBarView(pend, now) {
@@ -539,7 +537,7 @@ function pendingBarView(pend, now) {
   const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0;
   const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
   return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
-    '<div class="pend-act">' + storeBox() + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
+    '<div class="pend-act">' + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
 }
 
 function summaryView(ym, now, pend) {
@@ -1082,7 +1080,7 @@ function ddOpen(el) {
   const need = Math.min(d.opts.length * 40, 260) + 64, up = vh - r.bottom < need && r.top > vh - r.bottom;   // upwards only when the list doesn't fit below
   S.dd = { id, q: '', hi: Math.max(0, d.opts.findIndex(o => o[0] === d.c.value)), focus: true,
     pos: { left: Math.round(Math.max(8, Math.min(r.left, vw - width - 8))), top: Math.round(r.bottom + 6), bottom: Math.round(vh - r.top + 6), up, width: Math.round(width) } };
-  S.ms = null; S.dp = null; S.hr.wkOpen = false; S.hr.dl = false; closeStore();
+  S.ms = null; S.dp = null; S.hr.wkOpen = false; S.hr.dl = false;
 }
 function ddPick(v) {
   const d = DD[S.dd.id];
@@ -1697,14 +1695,26 @@ const A = {
   vRemove() { S.voucher = null; render(); },
   // Optimistic: the calendar shows the choices as registered at once; the server call runs in the
   // background (one at a time). On failure the affected days roll back to pending with "Coba lagi".
+  // Anything that adds portions asks for the store first (pop-up, starts empty); removals alone send at once.
   submit() {
     const pend = pendingChanges(nowJ());
     if (!pend.length) return;
-    const vch = S.voucher, added = addedByMonth(pend);
-    if (vch && !sumObj(added)) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
+    if (S.voucher && !sumObj(addedByMonth(pend))) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
+    if (!pend.some(c => c.l || c.d)) return A.send('');
+    closeStore(); S.storeAsk = true; S.storeFocus = true; S.pop = null;
+    render();
+  },
+  storeSend() {
     const store = S.store;
-    if (!store && pend.some(c => c.l || c.d)) { S.storeOpen = true; S.storeFocus = true; S.storeHi = 0; render(); return flash('Pilih lokasi store dulu sebelum mengirim.'); }
-    if (store) ls.set('pm-store', store);
+    if (!store) return flash('Pilih lokasi store dulu sebelum mengirim.');
+    closeStore();
+    A.send(store);
+  },
+  storeCancel() { closeStore(); render(); },
+  send(store) {
+    const pend = pendingChanges(nowJ());
+    if (!pend.length) return render();
+    const vch = S.voucher, added = addedByMonth(pend);
     const n = pend.reduce((a, c) => a + c.n, 0), before = {}, changes = pend.map(c => ({ date: c.date, l: c.l, d: c.d }));
     const tentative = vch ? { code: vch.code, split: splitVoucher(vch.value, added), pending: true } : null;
     if (tentative) { tentative.discount = sumObj(tentative.split); S.myVouchers.push(tentative); S.voucher = null; }
@@ -1729,13 +1739,12 @@ const A = {
       changes.forEach(c => { const b = before[c.date]; if (b) S.saved[c.date] = b; else delete S.saved[c.date]; });
       if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1); if (!S.voucher) S.voucher = vch; }
       if (isSession(e)) return fail(e);
-      flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.submit(), 'Coba lagi');
+      flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.send(store), 'Coba lagi');
     }));
     render();
   },
   ddToggle(el) { if (S.dd && S.dd.id === el.dataset.id) S.dd = null; else ddOpen(el); render(); },
   ddPick(el) { ddPick(el.dataset.v); },
-  storeToggle() { if (S.storeOpen) closeStore(); else { S.storeOpen = true; S.storeFocus = true; S.storeHi = Math.max(0, S.stores.indexOf(S.store)); } render(); },
   storePick(el) { pickStore(el.dataset.v); },
   closePop() { S.pop = null; render(); },
   qty(el) { const P = S.pop; setQty(P.k, P.mk, selQ(P.k, P.mk) + Number(el.dataset.n)); render(); },
@@ -2069,7 +2078,6 @@ function init() {
   root = document.getElementById('app');
   root.addEventListener('click', e => {
     if (S.ms && !e.target.closest('[data-ms-root]')) { S.ms = null; render(); }
-    if (S.storeOpen && !e.target.closest('[data-store-root]')) { closeStore(); render(); }
     if (S.dd && !e.target.closest('[data-dd-root]')) { S.dd = null; render(); }
     if (S.hr.wkOpen && !e.target.closest('[data-wk-root]')) { S.hr.wkOpen = false; render(); }
     if (S.hr.dl && (!e.target.closest('[data-dl-root]') || e.target.closest('.dl-opt'))) { S.hr.dl = false; render(); }
@@ -2112,7 +2120,7 @@ function init() {
   window.addEventListener('resize', () => { if (S.pop) S.pop = null; S.dd = null; if (S.user) render(); });
   window.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.in === 'vcode') { e.preventDefault(); return A.vApply(); }
-    if (S.storeOpen && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
+    if (S.storeAsk && e.target && e.target.dataset && e.target.dataset.in === 'storeQ') {
       const list = storeMatches();
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -2121,7 +2129,8 @@ function init() {
         setTimeout(() => { const o = root.querySelector('.sbox-opt.hi'); if (o) o.scrollIntoView({ block: 'nearest' }); }, 60);
         return;
       }
-      if (e.key === 'Enter') { e.preventDefault(); const st = list[Math.min(S.storeHi, list.length - 1)]; if (st) pickStore(st); return; }
+      // Enter picks the highlighted store; a second Enter on the same store sends.
+      if (e.key === 'Enter') { e.preventDefault(); const st = list[Math.min(S.storeHi, list.length - 1)]; if (st && st === S.store) A.storeSend(); else if (st) pickStore(st); return; }
     }
     if (S.dd && e.target && e.target.dataset && e.target.dataset.in === 'ddQ') {
       const list = ddMatches(DD[S.dd.id].opts);
@@ -2136,7 +2145,7 @@ function init() {
     }
     if (e.key !== 'Escape') return;
     if (S.dd) { S.dd = null; return render(); }
-    if (S.storeOpen) { closeStore(); return render(); }
+    if (S.storeAsk) { closeStore(); return render(); }
     if (S.hr.wkOpen || S.hr.dl) { S.hr.wkOpen = false; S.hr.dl = false; return render(); }
     if (S.ms) { S.ms = null; return render(); }
     if (S.dp) { S.dp = null; return render(); }
