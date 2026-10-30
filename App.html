@@ -599,9 +599,10 @@ function pendingBarView(pend, now) {
   const sub = m <= 24 * 60 ? 'Kirim sebelum ' + cutLabel(c) + ' — setelah itu minggu ' + weekRange(addDays(pend[0].date, -dow(pend[0].date))) + ' terkunci dan perubahan ini hilang.' : 'Pilihanmu belum tercatat sampai kamu tekan Kirim pendaftaran.';
   const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0, adds = pend.some(c => c.l || c.d), L = lastReady();
   const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
-  return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
-    '<div class="pend-act">' + (L && adds ? '<div class="pend-loc">' + ICON.pin(14) + '<span class="ell">Makan di <b>' + esc(askLabel(L)) + '</b></span><button class="link" data-a="storeChange">Ganti</button></div>' : '') +
-    voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
+  // Two rows: summary (+ where to eat) on top; voucher on the left and the actions on the right below.
+  return '<div class="pend-bar"><div class="pend-top"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
+    (L && adds ? '<div class="pend-loc">' + ICON.pin(14) + '<span class="ell">Makan di <b>' + esc(askLabel(L)) + '</b></span><button class="link" data-a="storeChange">Ganti</button></div>' : '') + '</div>' +
+    '<div class="pend-act">' + voucherBox(pend) + '<div class="spacer"></div><button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
 }
 
 function summaryView(ym, now, pend) {

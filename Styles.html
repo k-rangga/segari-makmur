@@ -261,8 +261,9 @@ main.emp{gap:28px}
 .mc.dn.pend{border-color:#f7971f;background:#fffaf1;color:#8a5a0b}
 .mc.lk.reg.dn{border:1px solid #ecd3a0;background:#fef8ee;color:#8a5a0b;opacity:1}
 .help{font-size:13px;color:#5d6560}
-.pend-bar{position:sticky;bottom:16px;z-index:30;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#1d211f;color:#FFFFFF;border-radius:14px;padding:14px 16px 14px 20px;box-shadow:0 12px 32px rgba(20,24,22,0.25)}
-.pend-bar .t{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px}
+.pend-bar{position:sticky;bottom:16px;z-index:30;display:flex;flex-direction:column;gap:12px;background:#1d211f;color:#FFFFFF;border-radius:14px;padding:14px 16px 14px 20px;box-shadow:0 12px 32px rgba(20,24,22,0.25)}
+.pend-top{display:flex;align-items:center;gap:12px 16px;flex-wrap:wrap}
+.pend-bar .t{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:2px}
 .pend-bar .t b{font-size:15px;font-weight:700}
 .pend-bar .t span{font-size:13px;color:#c5cbc6}
 
@@ -301,8 +302,8 @@ main.emp{gap:28px}
 .dp-presets button:disabled{border-color:#e3e6e1;color:#b9c2bb;cursor:not-allowed}
 
 /* voucher (pending bar) */
-.pend-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
-.pend-loc{display:flex;align-items:center;gap:8px;min-height:44px;max-width:300px;padding:0 6px 0 12px;border-radius:8px;background:#2b302d;color:#e4e7e3;font-size:14px;min-width:0}
+.pend-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:12px;border-top:1px solid #343a36}
+.pend-loc{display:flex;align-items:center;gap:8px;min-height:44px;max-width:min(360px,100%);padding:0 6px 0 12px;border-radius:8px;background:#2b302d;color:#e4e7e3;font-size:14px;min-width:0}
 .pend-loc svg{flex:none;color:#9fd3b4}
 .pend-loc b{color:#FFFFFF}
 .pend-loc .link{flex:none;color:#f7971f;padding:0 6px}
@@ -569,6 +570,11 @@ main.emp{gap:28px}
 
 /* small screens */
 @media (max-width:760px){
+  .pend-loc{max-width:none;flex:1 1 100%}
+  .pend-act .vbox{flex:1 1 100%;min-width:0}
+  .pend-act .vinput{flex:1;width:0;min-width:0}
+  .pend-act .spacer{display:none}
+  .pend-act>.btn-ghost-dark,.pend-act>.btn-accent{flex:1 1 0;padding:0 12px}
   main{padding:24px 16px 72px}
   .login-l{padding:32px 24px}
   .login-mid h1{font-size:36px}
