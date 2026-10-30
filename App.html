@@ -79,7 +79,7 @@ const S = {
   nik: '', nm: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
-  stores: [], store: '', team: '', teams: {}, openSt: '', lastTm: '', autoSt: '', storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
+  stores: [], store: '', team: '', teams: {}, last: null, openSt: '', lastTm: '', autoSt: '', autoWhy: '', storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
   hr: { mode: 'day', date: '', ws: '', weekCache: {}, rStore: 'all', group: 'store', missOpen: false, wkOpen: false, wkScroll: false, dl: false, pdfBusy: false, meal: 'all', store: 'all', sort: { k: 'name', dir: 1 }, q: '', days: {}, yms: [], monthCache: {},
     fb: null, fbMeal: [], fbRate: [], fbTag: [], fbSel: null, cutEdit: false, cut: null, print: false, printAt: '' },
   cl: { data: null, from: '', to: '', skip: true, meal: 'both', reason: '', impact: null, impKey: '', busy: false },
@@ -256,6 +256,7 @@ function applyBoot(d, stale, skew) {
   const first = !S.user;
   S.user = d.user; S.settings = d.settings; S.price = d.price; S.months = d.months; S.fbTags = d.fbTags; S.fbEditDays = d.fbEditDays;
   S.stores = d.stores || []; S.teams = d.teams && !Array.isArray(d.teams) ? d.teams : {};
+  if (!S.syncing) S.last = d.last || null;
   S.skew = stale ? (skew || 0) : d.now.ms - Date.now();
   if (first) {
     S.view = d.user.admin && ['recap', 'closure', 'voucher', 'team'].indexOf(ls.get('pm-view')) >= 0 ? ls.get('pm-view') : 'meal';
@@ -499,49 +500,50 @@ function voucherBox(pend) {
     '<button class="btn-ghost-dark" data-a="vApply"' + (S.vchecking ? ' disabled' : '') + '>' + (S.vchecking ? 'Memeriksa…' : 'Pakai') + '</button></div>';
 }
 
-// Asked on every "Kirim pendaftaran" that adds portions, in one step: where these meals are eaten and, when that
-// store has teams, which team (required). Opens on this browser's last store (its teams shown, the last team marked
-// "Terakhir" but not chosen). Up to 2 stores with teams: every store's teams are shown as buttons. From 3: stores are
-// rows and tapping one opens its teams under it (one at a time). Searching shows every match, teams across all stores.
+// Store + team for a send that adds portions. Once someone has a last pick (kept on the server, any device), the bottom
+// bar shows it and Kirim sends with it; "Ganti" (or no usable last pick) opens the pop-up. The pop-up opens on the last
+// store, or the employee's own store the first time, with that store's teams open; the last team is marked "Terakhir"
+// but not chosen. Up to 2 stores with teams: their teams are shown as buttons; from 3, stores are rows that open their
+// teams on tap. Searching shows every match, teams across all stores.
 const ASK_COLLAPSE = 3;
-function closeStore() { S.storeAsk = false; S.store = ''; S.team = ''; S.openSt = ''; S.lastTm = ''; S.autoSt = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
+function closeStore() { S.storeAsk = false; S.store = ''; S.team = ''; S.openSt = ''; S.lastTm = ''; S.autoSt = ''; S.autoWhy = ''; S.storeQ = ''; S.storeHi = -1; }   // -1: no keyboard highlight until typing or ↑/↓
 const teamsOf = st => S.teams[st] || [];
 const askReady = () => !!S.store && (!teamsOf(S.store).length || teamsOf(S.store).indexOf(S.team) >= 0);
 const askLabel = o => o.st + (o.tm ? ' · ' + o.tm : '');
-// The last store (+ team) sent from this browser, while the store still exists; tm '' when that team is gone.
-function askLast() {
-  let o = null;
-  try { o = JSON.parse(ls.get('pm-last') || 'null'); } catch (e) { o = null; }
-  if (!o || S.stores.indexOf(o.st) < 0) return null;
-  return { st: o.st, tm: teamsOf(o.st).indexOf(o.tm) >= 0 ? o.tm : '' };
+// The last pick when it can be sent as is: store still listed, and a team of it when it has teams.
+function lastReady() {
+  const L = S.last;
+  if (!L || S.stores.indexOf(L.st) < 0) return null;
+  return teamsOf(L.st).length ? (teamsOf(L.st).indexOf(L.tm) >= 0 ? L : null) : { st: L.st, tm: '' };
 }
 function askOpen() {
   closeStore();
-  const last = askLast();
-  if (last) { S.store = S.autoSt = S.openSt = last.st; S.lastTm = last.tm; }
+  const L = S.last && S.stores.indexOf(S.last.st) >= 0 ? S.last : null, home = S.stores.indexOf(S.user.store) >= 0 ? S.user.store : '';
+  const st = L ? L.st : home;
+  if (st) { S.store = S.autoSt = S.openSt = st; S.autoWhy = L ? 'last' : 'home'; S.lastTm = L && teamsOf(st).indexOf(L.tm) >= 0 ? L.tm : ''; }
   S.storeAsk = true; S.storeFocus = true;
 }
 const askCollapsed = () => !S.storeQ.trim() && S.stores.filter(st => teamsOf(st).length).length >= ASK_COLLAPSE;
-// Everything the pop-up shows, in order: { k: 'row' (store with teams, collapsed mode) | 'team' | 'store', st, tm }.
+// Everything the pop-up shows, in order: { k: 'row' (store with teams, collapsed) | 'team' | 'store', st, tm }.
 function askItems() {
   const q = S.storeQ.trim().toLowerCase(), hit = x => !q || x.toLowerCase().indexOf(q) >= 0, out = [];
+  const teamItems = st => teamsOf(st).forEach(tm => { if (hit(st) || hit(tm) || hit(st + ' ' + tm)) out.push({ k: 'team', st, tm }); });
   if (askCollapsed()) {
     S.stores.forEach(st => {
       if (!teamsOf(st).length) return out.push({ k: 'store', st, tm: '' });
       out.push({ k: 'row', st, tm: '' });
-      if (S.openSt === st) teamsOf(st).forEach(tm => out.push({ k: 'team', st, tm }));
+      if (S.openSt === st) teamItems(st);
     });
     return out;
   }
-  // A search matching the store name keeps all its teams.
-  S.stores.filter(st => teamsOf(st).length).forEach(st => teamsOf(st).forEach(tm => { if (hit(st) || hit(tm) || hit(st + ' ' + tm)) out.push({ k: 'team', st, tm }); }));
+  // The pre-selected store's teams come first.
+  S.stores.filter(st => teamsOf(st).length).sort((a, b) => (b === S.autoSt) - (a === S.autoSt)).forEach(teamItems);
   S.stores.filter(st => !teamsOf(st).length && hit(st)).forEach(st => out.push({ k: 'store', st, tm: '' }));
   return out;
 }
 function askPick(o) {
   if (o.k === 'row') {
-    const open = S.openSt !== o.st;
-    S.openSt = open ? o.st : '';
+    S.openSt = S.openSt !== o.st ? o.st : '';
     if (S.store !== o.st) { S.store = o.st; S.team = ''; }
   } else { S.store = o.st; S.team = o.tm; if (o.k === 'store') S.openSt = ''; }
   render();
@@ -550,8 +552,8 @@ function storeModalView() {
   if (!S.storeAsk) return '';
   const pend = pendingChanges(nowJ()), adds = pend.filter(c => c.l || c.d), items = askItems(), hi = Math.min(S.storeHi, items.length - 1);
   const attrs = (o, i) => ' data-a="storePick" data-k="' + o.k + '" data-st="' + esc(o.st) + '" data-tm="' + esc(o.tm) + '"' + (i === hi ? ' data-hi="1"' : '');
-  const chip = (o, i, text) => {
-    const on = o.st === S.store && o.tm === S.team, last = o.k === 'team' && o.st === S.store && o.tm === S.lastTm && !on;
+  const chip = (o, i) => {
+    const on = o.st === S.store && o.tm === S.team, last = o.k === 'team' && o.st === S.autoSt && o.tm === S.lastTm && !on, text = o.k === 'team' ? o.tm : o.st;
     return '<button type="button" role="option" aria-selected="' + on + '" class="st-chip' + (i === hi ? ' hi' : '') + (on ? ' on' : '') + '"' + attrs(o, i) + ' title="' + esc(askLabel(o)) + '">' +
       '<span class="ell">' + esc(text) + '</span>' + (last ? '<small>Terakhir</small>' : '') + '</button>';
   };
@@ -570,20 +572,20 @@ function storeModalView() {
       while (i < items.length && items[i].k === 'team' && items[i].st === o.st) teams.push([items[i], i++]);
       body += '<div class="st-row-w' + (open ? ' open' : '') + '"><button type="button" class="st-row' + (idx === hi ? ' hi' : '') + (sel ? ' on' : '') + '"' + attrs(o, idx) + ' aria-expanded="' + open + '">' +
         ICON.pin(14) + '<span class="ell">' + esc(o.st) + '</span><small>' + (sel && S.team ? esc(S.team) : teamsOf(o.st).length + ' tim') + '</small>' + ICON.chev(16) + '</button>' +
-        (open ? '<div class="st-chips">' + teams.map(t => chip(t[0], t[1], t[0].tm)).join('') + '</div>' : '') + '</div>';
+        (open ? '<div class="st-chips">' + teams.map(t => chip(t[0], t[1])).join('') + '</div>' : '') + '</div>';
     }
   } else {
-    const groups = {}, plain = [];
-    items.forEach((o, i) => { if (o.k === 'team') (groups[o.st] = groups[o.st] || []).push([o, i]); else plain.push([o, i]); });
-    Object.keys(groups).forEach(st => {
-      body += '<div class="st-grp"><span class="st-grp-h">' + ICON.pin(13) + esc(st) + ' <i>· pilih tim</i></span><div class="st-chips">' + groups[st].map(t => chip(t[0], t[1], t[0].tm)).join('') + '</div></div>';
+    const groups = {}, order = [], plain = [];
+    items.forEach((o, i) => { if (o.k === 'store') plain.push([o, i]); else { if (!groups[o.st]) { groups[o.st] = []; order.push(o.st); } groups[o.st].push([o, i]); } });
+    order.forEach(st => {
+      body += '<div class="st-grp"><span class="st-grp-h">' + ICON.pin(13) + esc(st) + ' <i>· pilih tim</i></span><div class="st-chips">' + groups[st].map(t => chip(t[0], t[1])).join('') + '</div></div>';
     });
-    if (plain.length) body += '<div class="st-grp">' + (Object.keys(groups).length ? '<span class="st-grp-h">' + ICON.pin(13) + 'Store lain</span>' : '') + '<div class="st-chips">' + plain.map(t => chip(t[0], t[1], t[0].st)).join('') + '</div></div>';
+    if (plain.length) body += '<div class="st-grp">' + (order.length ? '<span class="st-grp-h">' + ICON.pin(13) + 'Store lain</span>' : '') + '<div class="st-chips">' + plain.map(t => chip(t[0], t[1])).join('') + '</div></div>';
   }
-  const needTeam = S.store && teamsOf(S.store).length && !askReady();
+  const needTeam = S.store && teamsOf(S.store).length && !askReady(), auto = S.autoSt && S.store === S.autoSt;
   return '<div class="backdrop" data-a="storeCancel"></div><div class="modal st-modal" role="dialog" aria-modal="true" aria-label="Pilih store dan tim">' +
     '<div class="modal-h"><span>' + adds.length + ' hari · ' + esc(fmtRange(adds.map(c => c.date).sort())) + '</span><b>Makan di store mana?</b></div>' +
-    '<span class="note">' + (S.autoSt && S.store === S.autoSt ? 'Store terakhirmu sudah dipilih. ' : '') + 'Pilih store, dan timmu kalau store itu punya tim. Wajib diisi.</span>' +
+    '<span class="note">' + (auto ? (S.autoWhy === 'last' ? 'Store terakhirmu sudah dipilih. ' : 'Store kamu sudah dipilih. ') : '') + 'Pilih store, dan timmu kalau store itu punya tim. Wajib diisi.</span>' +
     '<input class="input lg" data-f="storeQ" data-in="storeQ" value="' + esc(S.storeQ) + '" placeholder="Cari store atau tim" autocomplete="off" spellcheck="false" aria-label="Cari store atau tim">' +
     '<div class="st-list" role="listbox" data-keep="storeList">' + body + (items.length ? '' : '<span class="sbox-empty">Store atau tim tidak ditemukan</span>') + '</div>' +
     '<div class="modal-a"><button class="btn" data-a="storeCancel">Batal</button><button class="btn-primary" data-a="storeSend"' + (askReady() ? '' : ' disabled') + '>' +
@@ -595,10 +597,11 @@ function pendingBarView(pend, now) {
   const n = pend.reduce((a, c) => a + c.n, 0), delta = pend.reduce((a, c) => a + c.delta, 0), allAdd = pend.every(c => c.add);
   const c = cutoffOf(pend[0].date), m = minsUntil(c, now);
   const sub = m <= 24 * 60 ? 'Kirim sebelum ' + cutLabel(c) + ' — setelah itu minggu ' + weekRange(addDays(pend[0].date, -dow(pend[0].date))) + ' terkunci dan perubahan ini hilang.' : 'Pilihanmu belum tercatat sampai kamu tekan Kirim pendaftaran.';
-  const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0;
+  const added = sumObj(addedByMonth(pend)), vd = S.voucher ? Math.min(S.voucher.value, added) : 0, adds = pend.some(c => c.l || c.d), L = lastReady();
   const vsub = !S.voucher ? '' : !added ? 'Voucher hanya bisa dipakai untuk pilihan baru.' : vd < S.voucher.value ? 'Voucher ' + rp(S.voucher.value) + ' dipakai ' + rp(vd) + ', sesuai biaya pilihan baru. Sisanya hangus.' : '';
   return '<div class="pend-bar"><div class="t"><b>' + n + (allAdd ? ' pilihan baru' : ' perubahan') + ' · ' + (delta > 0 ? '+' : '') + rp(delta * S.price) + (vd ? ' · voucher −' + rp(vd) : '') + '</b><span>' + (vsub || sub) + '</span></div>' +
-    '<div class="pend-act">' + voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
+    '<div class="pend-act">' + (L && adds ? '<div class="pend-loc">' + ICON.pin(14) + '<span class="ell">Makan di <b>' + esc(askLabel(L)) + '</b></span><button class="link" data-a="storeChange">Ganti</button></div>' : '') +
+    voucherBox(pend) + '<button class="btn-ghost-dark" data-a="discard">Batalkan</button><button class="btn-accent" data-a="submit">Kirim pendaftaran</button></div></div>';
 }
 
 function summaryView(ym, now, pend) {
@@ -1750,17 +1753,19 @@ const A = {
     if (!pend.length) return;
     if (S.voucher && !sumObj(addedByMonth(pend))) return flash('Voucher hanya bisa dipakai untuk pilihan baru. Hapus voucher atau tambah pilihan.');
     if (!pend.some(c => c.l || c.d)) return A.send('', '');
+    const L = lastReady();
+    if (L) return A.send(L.st, L.tm);
     askOpen(); S.pop = null;
     render();
   },
   storeSend() {
     if (!askReady()) return flash(S.store ? 'Pilih tim di ' + S.store + ' dulu sebelum mengirim.' : 'Pilih lokasi store dulu sebelum mengirim.');
     const store = S.store, team = S.team;
-    ls.set('pm-last', JSON.stringify({ st: store, tm: team }));
     closeStore();
     A.send(store, team);
   },
   storeCancel() { closeStore(); render(); },
+  storeChange() { askOpen(); S.pop = null; render(); },
   send(store, team) {
     const pend = pendingChanges(nowJ());
     if (!pend.length) return render();
@@ -1772,6 +1777,8 @@ const A = {
       before[c.date] = S.saved[c.date] ? clone(S.saved[c.date]) : null;
       if (c.l || c.d) S.saved[c.date] = { l: c.l, d: c.d, st: store, tm: team }; else delete S.saved[c.date];
     });
+    const nAdd = pend.filter(c => c.l || c.d).length, prevLast = S.last;
+    if (nAdd) S.last = { st: store, tm: team };      // shown in the bottom bar from now on; rolled back if the save fails
     S.syncing++; S.pop = null;
     flash('Pendaftaran terkirim · ' + n + ' perubahan tercatat' + (store ? ' · ' + store + (team ? ' · ' + team : '') : '') + (tentative ? ' · voucher −' + rp(tentative.discount) : ''));
     S.sync = S.sync.then(() => call('saveRegistrations', { changes, voucher: vch ? vch.code : null, store, team }).then(r => {
@@ -1787,6 +1794,7 @@ const A = {
     }, e => {
       S.syncing--;
       changes.forEach(c => { const b = before[c.date]; if (b) S.saved[c.date] = b; else delete S.saved[c.date]; });
+      if (nAdd) S.last = prevLast;
       if (tentative) { const i = S.myVouchers.indexOf(tentative); if (i >= 0) S.myVouchers.splice(i, 1); if (!S.voucher) S.voucher = vch; }
       if (isSession(e)) return fail(e);
       flash('Pendaftaran belum terkirim · ' + errMsg(e), () => A.send(store, team), 'Coba lagi');

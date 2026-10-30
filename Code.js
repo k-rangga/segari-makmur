@@ -493,8 +493,19 @@ function bootstrap_(me) {
     closures: closures_().filter(c => c.date >= rg.from),
     menus: menus_(addDays_(now.key, -14), rg.to),
     fb,
-    vouchers: myVouchers_(me.nik, rg.from, rg.to)
+    vouchers: myVouchers_(me.nik, rg.from, rg.to),
+    last: lastPick_(me.nik)
   };
+}
+
+// Each employee's last store + team sent (a ScriptProperty per NIK), so it follows them to any device.
+const lastKey_ = nik => 'lp:' + nik;
+/** { st, tm } of the last send that added portions, while that store still exists (tm '' when its team is gone), or null. */
+function lastPick_(nik) {
+  let a = null;
+  try { a = JSON.parse(PropertiesService.getScriptProperties().getProperty(lastKey_(nik)) || 'null'); } catch (e) { a = null; }
+  if (!a || storeChoices_().indexOf(a[0]) < 0) return null;
+  return { st: a[0], tm: teamIn_(teams_(), a[0], a[1]) };
 }
 
 function saveRegistrations_(me, changes, code, store, team) {
@@ -547,7 +558,8 @@ function saveRegistrations_(me, changes, code, store, team) {
   });
   // The caller's registrations after this save (cache is already up to date).
   Object.assign(reg, myRegs_(me, rg.from, rg.to));
-  return { reg, saved: dates.length, skipped, voucher: used };
+  if (adds) PropertiesService.getScriptProperties().setProperty(lastKey_(me.nik), JSON.stringify([st, tm]));
+  return { reg, saved: dates.length, skipped, voucher: used, last: adds ? { st, tm } : null };
 }
 
 /**
