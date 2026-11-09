@@ -76,7 +76,7 @@ const S = {
   booting: true, busy: false, token: ls.get('pm-token'), user: null, settings: { cut: { white: { days: 3, time: '23:59' }, blue: { days: 3, time: '23:59' } }, maxPortions: 3 },
   price: 5000, skew: 0, months: [], fbTags: [], fbEditDays: 3,
   view: 'meal', navClosed: ls.get('pm-navClosed') === '1',
-  nik: '', nm: '', loginErr: '',
+  nik: '', loginErr: '',
   saved: {}, sel: {}, closures: [], menus: {}, fb: {}, mi: 0, hideWknd: ls.get('pm-hideWknd') === '1',
   pop: null, fbDraft: null, syncing: 0, sync: Promise.resolve(), bootData: null, bootAt: 0, drag: null, suppress: false,
   stores: [], store: '', team: '', teams: {}, last: null, openSt: '', lastTm: '', autoSt: '', autoWhy: '', storeAsk: false, storeQ: '', storeHi: 0, storeFocus: false,
@@ -209,30 +209,28 @@ function toastView() {
 
 // ------------------------------------------------------------ login
 function loginView() {
-  const e = S.loginErr, nikErr = /^NIK/.test(e), nmErr = /^Nama/.test(e);
+  const e = S.loginErr, nikErr = /NIK/.test(e);
   return '<div class="login"><div class="login-l"><span class="login-brand">' + logoFull(56) + '</span>' +
     '<div class="login-mid"><h1>Program Makan</h1><p>Daftar makan siang dan makan malam setiap bulan. Pilih hari, tentukan jumlah porsi, dan pantau makananmu. Setiap porsi Rp 5.000 dan dipotong dari gaji.</p></div>' +
     '<span class="login-foot">Butuh bantuan? Hubungi admin program makan.</span></div>' +
     '<div class="login-r"><form data-submit="login" novalidate>' +
-    '<div class="field"><h2>Masuk</h2><span class="muted">Masukkan NIK dan nama lengkap sesuai data HR.</span></div>' +
+    '<div class="field"><h2>Masuk</h2><span class="muted">Masukkan NIK kamu sesuai data HR.</span></div>' +
     '<label class="field"><span class="lbl">NIK (Nomor Induk Karyawan)</span><input class="linput nik' + (nikErr ? ' err' : '') + '" data-f="nik" data-in="nik" value="' + esc(S.nik) + '" placeholder="cth. 20210001" autocomplete="username" autocapitalize="characters" spellcheck="false"></label>' +
-    '<label class="field"><span class="lbl">Nama lengkap</span><input class="linput' + (nmErr ? ' err' : '') + '" data-f="nm" data-in="nm" value="' + esc(S.nm) + '" placeholder="cth. Rina Wulandari" autocomplete="name"></label>' +
     (e ? '<div class="login-err">' + esc(e) + '</div>' : '') +
     '<button type="submit" class="login-submit"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? 'Memeriksa…' : 'Masuk') + '</button>' +
     '</form></div></div>';
 }
 
 async function doLogin() {
-  const nik = S.nik.replace(/\s/g, ''), nm = S.nm.trim();
+  const nik = S.nik.replace(/\s/g, '');
   if (!nik) { S.loginErr = 'NIK wajib diisi.'; return render(); }
-  if (!nm) { S.loginErr = 'Nama wajib diisi.'; return render(); }
   S.busy = true; S.loginErr = ''; render();
   try {
-    const r = await call('login', { nik, name: nm });
+    const r = await call('login', { nik });
     S.token = r.token; ls.set('pm-token', r.token);
     S.busy = false;
     applyBoot(r.boot);
-    flash('Selamat datang, ' + S.user.name.split(' ')[0]);
+    flash('Selamat datang' + (S.user.name ? ', ' + S.user.name.split(' ')[0] : ''));
   } catch (e) {
     S.busy = false;
     S.loginErr = errMsg(e);
@@ -246,7 +244,7 @@ function signOut(msg) {
   ls.set('pm-boot', null); S.bootData = null;
   S.voucher = null; S.vcode = ''; S.myVouchers = []; S.vc.data = null;
   S.store = ''; S.stores = [];
-  S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.hr.weekCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = ''; S.nm = '';
+  S.hr.days = {}; S.hr.fb = null; S.hr.monthCache = {}; S.hr.weekCache = {}; S.cl.data = null; S.ms = null; S.loginErr = msg || ''; S.nik = '';
   render();
 }
 
@@ -289,19 +287,19 @@ async function boot() { applyBoot(await call('bootstrap')); }
 
 // ------------------------------------------------------------ sidebar
 function sideView() {
-  const u = S.user, ini = esc(initials(u.name)), mini = S.navClosed || window.innerWidth < 760;
+  const u = S.user, nm = u.name || 'NIK ' + u.nik, ini = esc(u.name ? initials(u.name) : String(u.nik).slice(-2)), mini = S.navClosed || window.innerWidth < 760;
   const items = [['meal', 'Daftar makan', ICON.cal]].concat(u.admin ? [['recap', 'Rekap porsi', ICON.chart], ['closure', 'Tutup kantin', ICON.calx], ['voucher', 'Voucher', ICON.ticket], ['team', 'Tim', ICON.users]] : []);
   const role = (u.admin ? 'Admin' : (u.dept || 'Karyawan')) + ' · NIK ' + u.nik;
   if (mini) {
     return '<aside class="side mini"><div class="logo">' + logoMark(40) + '</div><nav class="nav">' +
       items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '" title="' + i[1] + '" aria-label="' + i[1] + '">' + i[2](22) + '</button>').join('') +
-      '</nav><div class="side-foot"><div class="avatar" title="' + esc(u.name) + '">' + ini + '</div>' +
+      '</nav><div class="side-foot"><div class="avatar" title="' + esc(nm) + '">' + ini + '</div>' +
       '<button class="logout" data-a="logout" title="Keluar" aria-label="Keluar" style="padding:0;width:44px;justify-content:center">' + ICON.out(18) + '</button>' +
       (window.innerWidth < 760 ? '' : '<button class="collapse" data-a="toggleNav" title="Tampilkan menu samping">' + ICON.right(18) + '</button>') + '</div></aside>';
   }
   return '<aside class="side"><div class="brand">' + logoFull(46) + '<span class="brand-name">Program Makan</span></div>' +
     '<nav class="nav">' + items.map(i => '<button class="nav-i' + (S.view === i[0] ? ' on' : '') + '" data-a="nav" data-v="' + i[0] + '">' + i[2](20) + i[1] + '</button>').join('') + '</nav>' +
-    '<div class="side-foot"><div class="user"><div class="avatar">' + ini + '</div><div class="user-t"><b class="ell">' + esc(u.name) + '</b><span class="ell">' + esc(role) + '</span></div></div>' +
+    '<div class="side-foot"><div class="user"><div class="avatar">' + ini + '</div><div class="user-t"><b class="ell">' + esc(nm) + '</b><span class="ell">' + esc(role) + '</span></div></div>' +
     '<div class="foot-row"><button class="logout" data-a="logout">' + ICON.out(18) + 'Keluar</button>' +
     '<button class="collapse" data-a="toggleNav" title="Sembunyikan menu samping">' + ICON.left(18) + '</button></div></div></aside>';
 }
@@ -323,7 +321,7 @@ function empView() {
     h += '<div class="notice"><b>Pengumuman minggu ini</b>' + notes.map(cs => '<div class="notice-r"><span>' + esc(cs.length > 1 ? fmt(cs[0].date) + ' – ' + dnum(cs[cs.length - 1].date) : fmt(cs[0].date)) + '</span><span>Kantin tutup (' + MEAL_NAME[cs[0].meal].toLowerCase() + ') · ' + esc(cs[0].reason) + '. Tidak ada biaya.</span></div>').join('') + '</div>';
   }
 
-  h += '<div class="ph"><h1>' + greeting(now.min) + ', ' + esc(S.user.name.split(' ')[0]) + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span>' + '</div>';
+  h += '<div class="ph"><h1>' + greeting(now.min) + (S.user.name ? ', ' + esc(S.user.name.split(' ')[0]) : '') + '</h1><span>Pilih hari makan setiap bulan · ' + rp(S.price) + ' per porsi, dipotong dari gaji</span>' + '</div>';
 
   // feedback banner for today's lunch
   const bannerOn = savedQ(today, 'l') && !blockOf(S.closures, today, 'lunch') && mealStarted(today, 'lunch', now) && !S.fb[today + '-lunch'] && ls.get('pm-fbDismiss') !== today;
@@ -1088,7 +1086,7 @@ function missingView(w, now) {
     (list.length ? '<button class="btn" data-a="exportMissing">Ekspor belum daftar</button><button class="btn" data-a="missToggle">' + (H.missOpen ? 'Sembunyikan nama' : 'Lihat ' + nf(list.length) + ' belum daftar') + '</button>' : '') + '</div>' +
     '<div class="part" data-keep="part">' + stores.map(x => { const p = pct(x.r, x.n);
       return '<div class="part-r"><b class="ell">' + esc(x.st) + '</b>' + bar(p) + '<span class="r"><b' + (p < 60 ? ' style="color:#8a5a0b"' : '') + '>' + p + '%</b> · ' + x.r + '/' + x.n + '</span></div>' +
-        (H.missOpen && by[x.st] ? '<div class="part-miss">Belum daftar: ' + by[x.st].map(e => esc(e.name) + (e.dept ? ' <i>' + esc(e.dept) + '</i>' : '')).join(', ') + '</div>' : ''); }).join('') +
+        (H.missOpen && by[x.st] ? '<div class="part-miss">Belum daftar: ' + by[x.st].map(e => esc(e.name || 'NIK ' + e.nik) + (e.dept ? ' <i>' + esc(e.dept) + '</i>' : '')).join(', ') + '</div>' : ''); }).join('') +
     (stores.length ? '' : '<div class="empty">Belum ada data karyawan.</div>') + '</div></div>';
 }
 
@@ -2056,7 +2054,6 @@ const A = {
 // input handlers (no re-render unless derived UI depends on the value)
 const IN = {
   nik(v) { S.nik = v; if (S.loginErr) { S.loginErr = ''; render(); } },
-  nm(v) { S.nm = v; if (S.loginErr) { S.loginErr = ''; render(); } },
   fbNote(v) { if (S.fbDraft) S.fbDraft.note = v; },
   q(v) { S.hr.q = v; render(); },
   clReason(v) { S.cl.reason = v; render(); },

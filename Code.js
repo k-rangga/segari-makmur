@@ -59,7 +59,7 @@ function api(action, token, payload) {
 }
 
 const ACTIONS = {
-  login: (_, p) => login_(p.nik, p.name),
+  login: (_, p) => login_(p.nik),
   bootstrap: token => bootstrap_(auth_(token)),
   saveRegistrations: (token, p) => saveRegistrations_(auth_(token), p.changes || [], p.voucher, p.store, p.team),
   checkVoucher: (token, p) => { auth_(token); return checkVoucher_(p.code); },
@@ -197,18 +197,25 @@ function settings_() {
 }
 
 /** `fresh` skips the cache (used when a NIK is not found, so new employees can log in at once). */
+/**
+ * Headers accepted in Indonesian or English (Nama/Name, Departemen, Aktif/Status). A blank or "-" name or
+ * department counts as empty: login is by NIK alone, so rows without a name still work.
+ */
 function employees_(fresh) {
-  return cached_('emp3', () => {
+  return cached_('emp4', () => {
+    const val = v => /^[-–\s]*$/.test(v || '') ? '' : String(v).trim();
     return readTable_('employee').rows.map(r => {
-      const dept = r.departemen || '', kat = r.kategori || '', store = r.store || 'Tanpa store';
+      const dept = val(r.departemen || r.department), kat = r.kategori || r.category || '', store = r.store || 'Tanpa store';
       const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
       return {
-        nik: String(r.nik).replace(/\s/g, ''), name: r.nama, dept, store, collar,
-        admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak|no|false|0|n|nonaktif)$/i.test(r.aktif || '')
+        nik: String(r.nik).replace(/\s/g, ''), name: val(r.nama || r.name), dept, store, collar,
+        admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak( aktif)?|non ?aktif|inactive|no|false|0|n)$/i.test(String(r.aktif || r.status || '').trim())
       };
-    }).filter(e => e.nik && e.name);
+    }).filter(e => e.nik);
   }, fresh);
 }
+/** The employee's name, or "NIK …" when the sheet has none (for "made by" columns). */
+const nameOf_ = e => e.name || 'NIK ' + e.nik;
 
 function storesOf_(emps) {
   const seen = [];
@@ -427,9 +434,9 @@ function secret_() {
 }
 function sign_(s) { return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(s, secret_())); }
 
-function login_(nik, name) {
-  nik = String(nik || '').replace(/\s/g, '');            // any characters; spaces ignored
-  const nm = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+/** Log in with the NIK alone (any characters, spaces ignored); unknown NIKs count towards a 15-minute lockout. */
+function login_(nik) {
+  nik = String(nik || '').replace(/\s/g, '');
   if (!nik) throw new Error('NIK wajib diisi.');
   const cache = CacheService.getScriptCache(), ck = 'fail:' + nik.toUpperCase().slice(0, 200), fails = Number(cache.get(ck) || 0);
   if (fails >= 8) throw new Error('Terlalu banyak percobaan. Coba lagi 15 menit lagi.');
@@ -438,8 +445,6 @@ function login_(nik, name) {
   const emp = employees_().find(same) || employees_(true).find(same);
   if (!emp) fail('NIK tidak ditemukan. Hubungi People & HR.');
   if (!emp.active) throw new Error('NIK ini tidak aktif. Hubungi People & HR.');
-  if (!nm) throw new Error('Nama wajib diisi.');
-  if (emp.name.trim().toLowerCase().replace(/\s+/g, ' ') !== nm) fail('Nama tidak sesuai dengan NIK ini.');
   cache.remove(ck);
   const p = emp.nik + '|' + (Date.now() + SESSION_DAYS * 864e5);
   return { token: Utilities.base64EncodeWebSafe(p) + '.' + sign_(p), boot: bootstrap_(emp) };
@@ -722,7 +727,7 @@ function uploadVouchers_(me, rows) {
         : seen[code] ? 'Duplikat di file' : have[code] ? 'Sudah ada' : '';
       if (bad) { skipped.push({ code: code || String(r && r.code || ''), reason: bad }); return; }
       seen[code] = true;
-      out.push([code, value, until, '', '', '', '', ts, me.name]);
+      out.push([code, value, until, '', '', '', '', ts, nameOf_(me)]);
     });
     if (out.length) {
       const sh = sheet_('voucher');
@@ -907,7 +912,7 @@ function adminFeedback_(p) {
     if (f.date < from) return;
     const key = f.date + '-' + f.meal, e = em[f.nik];
     (groups[key] = groups[key] || { date: f.date, meal: f.meal, list: [] }).list.push({
-      r: f.r, tags: f.tags, note: f.note, who: e ? e.name + (e.dept ? ' · ' + e.dept : '') : f.nik
+      r: f.r, tags: f.tags, note: f.note, who: e ? nameOf_(e) + (e.dept ? ' · ' + e.dept : '') : f.nik
     });
   });
   const sessions = Object.keys(groups).map(k => groups[k])
@@ -958,7 +963,7 @@ function addClosure_(me, p) {
     readTable_('tutup').rows.filter(r => dates.indexOf(r.tanggal) >= 0).map(r => r._row)
       .sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
     const g = 'g' + Date.now(), ts = stamp_();
-    const rows = dates.map(k => [g, k, MEAL_LABEL[meal], reason, me.name, ts]);
+    const rows = dates.map(k => [g, k, MEAL_LABEL[meal], reason, nameOf_(me), ts]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
     forget_(['cls1'], ['tutup']);
   });
@@ -1037,7 +1042,7 @@ function addTeams_(me, store, names) {
     });
     if (added.length) {
       const sh = sheet_('tim'), ts = stamp_();
-      sh.getRange(sh.getLastRow() + 1, 1, added.length, 4).setValues(added.map(t => [st, t, me.name, ts]));
+      sh.getRange(sh.getLastRow() + 1, 1, added.length, 4).setValues(added.map(t => [st, t, nameOf_(me), ts]));
     }
     forget_(['tim1'], ['tim']);
   });

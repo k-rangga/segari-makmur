@@ -254,7 +254,7 @@ All tabs have a header row; columns are matched **by header name, case-insensiti
 
 | Sheet tab | Columns | → Table | Transform |
 |---|---|---|---|
-| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif | `employee` (+ `store`) | `nik` = NIK with all whitespace removed, any characters allowed (numbers → string, no decimals). `collar`: Kategori contains "blue" → blue; contains "white" → white; else Departemen matches /gudang\|operasional/i → blue; else white. `role`: Role matches /admin\|hr/i → admin. `active`: false only if Aktif ∈ {tidak, no, false, 0, n, nonaktif} (case-insensitive), blank = true. Blank Store → "Tanpa store". Skip rows without NIK or Nama. |
+| `employee` | NIK, Nama, Departemen, Store, Kategori, Role, Aktif (English headers `name`, `department`, `status` also accepted) | `employee` (+ `store`) | `name` blank when the cell is empty or "-" (show the NIK instead); `nik` = NIK with all whitespace removed, any characters allowed (numbers → string, no decimals). `collar`: Kategori contains "blue" → blue; contains "white" → white; else Departemen matches /gudang\|operasional/i → blue; else white. `role`: Role matches /admin\|hr/i → admin. `active`: false only if Aktif ∈ {tidak, no, false, 0, n, nonaktif} (case-insensitive), blank = true. Blank Store → "Tanpa store". Skip rows without NIK. |
 | `pendaftaran` | Tanggal, NIK, Siang, Malam, Diperbarui | `registration` | Tanggal may be text `YYYY-MM-DD` or a Sheets date → format in Asia/Jakarta. Siang/Malam → int ≥ 0 (blank/invalid = 0). Diperbarui `yyyy-MM-dd HH:mm:ss` Jakarta → `updated_at`. If duplicates exist for (date, nik), keep the last row. |
 | `tutup` | Grup, Tanggal, Waktu, Alasan, Dibuat oleh, Dibuat pada | `closure_group` + `closure_day` | Group rows by Grup (blank Grup → its own group per date). Waktu: contains both "siang" and "malam" / "keduanya" / "both" → both; "siang"/"lunch" → lunch; "malam"/"dinner" → dinner; anything else → both. Dibuat oleh is a **name** → look up the employee nik by name (null if not found). |
 | `masukan` | Tanggal, Waktu, NIK, Nilai, Tag, Catatan, Diperbarui | `feedback` | Waktu "Malam"/dinner → dinner, else lunch. Nilai lower-cased; drop rows not in {enak, biasa, kurang}. Tag split on `;` and trimmed. |
@@ -318,15 +318,13 @@ Accepted only if **all** hold:
 - **Anonymity**: kitchen-facing CSV contains no names/NIKs. Admin UI shows "Name · Department" per comment with the label "Nama hanya terlihat oleh admin".
 
 ### 4.8 Login
-- Input: NIK + full name. NIK normalized by removing whitespace; any characters allowed, no length limit; matched case-insensitively. Name compared **case-insensitively with whitespace collapsed** ("  rina   WULANDARI " matches "Rina Wulandari").
+- Input: NIK only. NIK normalized by removing whitespace; any characters allowed, no length limit; matched case-insensitively.
 - Error messages (exact):
   - empty NIK → `NIK wajib diisi.`
   - unknown NIK → `NIK tidak ditemukan. Hubungi People & HR.` (counts as a failed attempt)
   - inactive → `NIK ini tidak aktif. Hubungi People & HR.`
-  - empty name → `Nama wajib diisi.`
-  - wrong name → `Nama tidak sesuai dengan NIK ini.` (counts as a failed attempt)
   - throttled → `Terlalu banyak percobaan. Coba lagi 15 menit lagi.` (after **8** failed attempts for a NIK, locked 15 minutes; success resets)
-- Security note for the new stack: NIK + name is weak authentication (both are semi-public). Keep it for parity, but consider adding an optional PIN later. Never expose whether a name is close.
+- Security note for the new stack: a NIK alone is weak authentication (NIKs are semi-public, and this one is visible to anyone with the spreadsheet). Keep it for parity, but consider adding a PIN or SSO.
 
 ### 4.9 Sessions
 - Today: token = base64url(`nik|expiryMs`) + "." + base64url(HMAC-SHA256(payload, secret)); secret stored server-side, created on first use; 30-day expiry; stored client-side in `localStorage` (`pm-token`).
@@ -396,7 +394,7 @@ Persisted per-browser preferences (localStorage, all optional): `pm-token`, `pm-
 ### 6.1 Login (full-screen)
 - Two panels in a responsive grid (`repeat(auto-fit, minmax(min(100%,420px),1fr))`).
 - Left (dark green): brand "**S**egari" (S in orange), "Program Makan", description "Daftar makan siang dan makan malam setiap bulan. Pilih hari, tentukan jumlah porsi, dan pantau makananmu. Setiap porsi Rp 5.000 dan dipotong dari gaji.", footer "Butuh bantuan? Hubungi admin program makan."
-- Right: "Masuk" / "Masukkan NIK dan nama lengkap sesuai data HR."; fields "NIK (Nomor Induk Karyawan)" (any characters, no length limit, placeholder "cth. 20210001") and "Nama lengkap" (placeholder "cth. Rina Wulandari"); error box; submit "Masuk" ("Memeriksa…" while busy). The field the error refers to gets a 1.5px warning border (error text starting with "NIK" → NIK field, "Nama" → name field).
+- Right: "Masuk" / "Masukkan NIK kamu sesuai data HR."; field "NIK (Nomor Induk Karyawan)" (any characters, no length limit, placeholder "cth. 20210001"); error box; submit "Masuk" ("Memeriksa…" while busy). The NIK field gets a 1.5px warning border when the error mentions the NIK.
 - On success toast "Selamat datang, {firstName}".
 
 ### 6.2 Sidebar
@@ -603,7 +601,7 @@ Day cell: min-h 116, pad 8 6, gap 6, borders `#EEF0EC`; past/out-of-month bg `#F
 
 Use clock injection; Asia/Jakarta.
 
-1. Login: correct NIK + name (any case/extra spaces) succeeds; wrong name → "Nama tidak sesuai dengan NIK ini."; 8 wrong attempts → throttled 15 min; inactive employee rejected; deactivating a logged-in employee ends their session on next request.
+1. Login: a known, active NIK (any case/spaces) succeeds; 8 unknown-NIK attempts → throttled 15 min; inactive employee rejected; deactivating a logged-in employee ends their session on next request.
 2. Cutoff: with defaults, on Fri 9 Oct 23:58 a change to Mon 12 Oct saves; at 23:59 it is skipped (`skipped = 1`) and the UI shows the week as locked.
 3. Changing `batas_hari` to 1 (Minggu) unlocks/locks weeks accordingly on the next request.
 4. Portions clamp to `maks_porsi`; qty 0 for both meals on a new date creates no row.
