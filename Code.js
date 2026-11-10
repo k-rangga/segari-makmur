@@ -202,14 +202,14 @@ function settings_() {
  * department counts as empty: login is by NIK alone, so rows without a name still work.
  */
 function employees_(fresh) {
-  return cached_('emp4', () => {
+  return cached_('emp5', () => {
     const val = v => /^[-–\s]*$/.test(v || '') ? '' : String(v).trim();
     return readTable_('employee').rows.map(r => {
       const dept = val(r.departemen || r.department), kat = r.kategori || r.category || '', store = r.store || 'Tanpa store';
       const collar = /blue/i.test(kat) ? 'blue' : /white/i.test(kat) ? 'white' : /gudang|operasional/i.test(dept) ? 'blue' : 'white';
       return {
         nik: String(r.nik).replace(/\s/g, ''), name: val(r.nama || r.name), dept, store, collar,
-        admin: /admin|hr/i.test(r.role || ''), active: !/^(tidak( aktif)?|non ?aktif|inactive|no|false|0|n)$/i.test(String(r.aktif || r.status || '').trim())
+        admin: /^(t|true|y|ya|yes|1)$/i.test(String(r.admin).trim()) || /admin|hr/i.test(r.role || ''), active: !/^(tidak( aktif)?|non ?aktif|inactive|no|false|0|n)$/i.test(String(r.aktif || r.status || '').trim())
       };
     }).filter(e => e.nik);
   }, fresh);
