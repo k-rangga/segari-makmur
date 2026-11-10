@@ -40,38 +40,53 @@ group by 1,2,3,4,5,7
     if (!sheet) {
       sheet = ss.insertSheet(DEST_SHEET_NAME);
     }
-    sheet.clear(); // Optional: clears existing sheet data before import
 
-    // 6. Parse and write metadata (Headers)
+    // 6. Remember the hand-filled admin column (T/F) by NIK before the sheet is cleared
+    const key = v => String(v == null ? '' : v).replace(/\s/g, '');
+    const adminByNik = {};
+    let hasAdminCol = false;
+    const old = sheet.getDataRange().getValues();
+    if (old.length) {
+      const oh = old[0].map(h => String(h).trim().toLowerCase());
+      const ni = oh.indexOf('nik'), ai = oh.indexOf('admin');
+      if (ni >= 0 && ai >= 0) {
+        hasAdminCol = true;
+        for (let r = 1; r < old.length; r++) {
+          const v = old[r][ai];
+          if (key(old[r][ni]) && v !== '' && v != null) adminByNik[key(old[r][ni])] = v;
+        }
+      }
+    }
+
+    // 7. Read headers and rows from the query, then add the admin column back
     const rsmd = rs.getMetaData();
     const numColumns = rsmd.getColumnCount();
     const headers = [];
     for (let i = 1; i <= numColumns; i++) {
       headers.push(rsmd.getColumnName(i));
     }
-    sheet.appendRow(headers);
+    const nikCol = headers.map(h => String(h).toLowerCase()).indexOf('nik');
+    const keepAdmin = hasAdminCol && nikCol >= 0 && headers.every(h => String(h).toLowerCase() !== 'admin');
+    if (keepAdmin) headers.push('admin');
 
-    // 7. Parse and write rows
     const rows = [];
     while (rs.next()) {
       const row = [];
       for (let i = 1; i <= numColumns; i++) {
         row.push(rs.getString(i));
       }
-      rows.push(row);
-
-      // Batch rows periodically to avoid memory issues on huge sets
-      if (rows.length === 500) {
-        const lastRow = sheet.getLastRow();
-        sheet.getRange(lastRow + 1, 1, rows.length, numColumns).setValues(rows);
-        rows.length = 0; // Clear the batch array
+      if (keepAdmin) {
+        const a = adminByNik[key(row[nikCol])];
+        row.push(a === undefined ? '' : a);
       }
+      rows.push(row);
     }
 
-    // Write any remaining rows
+    // Write everything only after the query has been read in full
+    sheet.clear();
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     if (rows.length > 0) {
-      const lastRow = sheet.getLastRow();
-      sheet.getRange(lastRow + 1, 1, rows.length, numColumns).setValues(rows);
+      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
     }
 
     // 8. Close connections cleanly
